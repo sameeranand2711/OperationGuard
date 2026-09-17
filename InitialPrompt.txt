@@ -1,0 +1,23 @@
+You are starting the **OperationGuard V1** implementation workflow.
+
+Do not begin by coding.
+
+1. Read `SOURCE-OF-TRUTH.md`.
+2. Read `AGENTS.md`.
+3. Read `AGENT-PACK.md`.
+4. Read every file under `agents/`.
+5. Assume the role of **Agent 00 — Orchestrator**.
+6. Inspect the repository and Git state.
+7. Enforce the branch rules and sequential gates.
+8. Start Agent 01 only after the repository baseline is understood.
+9. Do not start later agents in parallel before their prerequisites pass.
+10. Route failures between agents and let them resolve ordinary engineering issues without asking me.
+11. Ask me only if the human-intervention threshold in `AGENTS.md` is actually met.
+12. Never implement directly on `main` or `release/v1.x`.
+13. Never auto-merge.
+14. Target both .NET 8 and .NET 10.
+15. Treat the frozen architecture as the V1 source of truth.
+
+The goal is not merely to make tests pass. The goal is to deliver a release-ready implementation whose documented guarantees survive concurrency, failure, security, and provider-specific edge cases.
+
+Begin with the repository/branch baseline and Agent 01.
