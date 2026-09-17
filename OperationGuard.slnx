@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/OperationGuard.Testing.Contracts/OperationGuard.Testing.Contracts.csproj" />
+    <Project Path="tests/OperationGuard.Core.Tests/OperationGuard.Core.Tests.csproj" />
+    <Project Path="tests/OperationGuard.AspNetCore.Tests/OperationGuard.AspNetCore.Tests.csproj" />
+    <Project Path="tests/OperationGuard.SqlServer.IntegrationTests/OperationGuard.SqlServer.IntegrationTests.csproj" />
+    <Project Path="tests/OperationGuard.PostgreSql.IntegrationTests/OperationGuard.PostgreSql.IntegrationTests.csproj" />
+    <Project Path="tests/OperationGuard.ConcurrencyTests/OperationGuard.ConcurrencyTests.csproj" />
+    <Project Path="tests/OperationGuard.SecurityTests/OperationGuard.SecurityTests.csproj" />
+  </Folder>
+</Solution>
