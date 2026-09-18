@@ -1,4 +1,10 @@
 <Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OperationGuard.Core/OperationGuard.Core.csproj" />
+    <Project Path="src/OperationGuard.AspNetCore/OperationGuard.AspNetCore.csproj" />
+    <Project Path="src/OperationGuard.SqlServer/OperationGuard.SqlServer.csproj" />
+    <Project Path="src/OperationGuard.PostgreSql/OperationGuard.PostgreSql.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/OperationGuard.Testing.Contracts/OperationGuard.Testing.Contracts.csproj" />
     <Project Path="tests/OperationGuard.Core.Tests/OperationGuard.Core.Tests.csproj" />

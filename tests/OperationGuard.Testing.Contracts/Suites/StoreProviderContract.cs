@@ -15,7 +15,7 @@ public abstract class StoreProviderContract<TFactory>
     private static readonly ContractIdentity Identity = new("tenant-a", "Payments.Create", "key-1");
     private static readonly ContractFingerprint Fingerprint = ContractFingerprint.FromMarker("fingerprint-a");
 
-    [Fact]
+    [ProviderFact]
     public async Task First_reservation_is_atomic_and_creates_one_active_owner()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -31,7 +31,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(Fingerprint, stored.Fingerprint);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Active_duplicate_with_same_fingerprint_never_acquires_another_owner()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -43,7 +43,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(ContractBeginKind.AlreadyInProgress, duplicate.Kind);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Lease_expiry_alone_does_not_make_an_active_operation_safe_to_retry()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -56,7 +56,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(ContractBeginKind.AlreadyInProgress, duplicate.Kind);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Same_identity_with_different_fingerprint_is_always_a_mismatch()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -74,7 +74,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(Fingerprint, stored?.Fingerprint);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Same_client_key_is_isolated_by_scope_and_operation_name()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -90,7 +90,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(3, results.Select(result => result.OwnerToken).Distinct(StringComparer.Ordinal).Count());
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Completion_is_conditional_on_the_current_owner_and_is_terminal()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -110,7 +110,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(Encoding.UTF8.GetBytes("accepted"), duplicate.Operation?.Response?.Body);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Ambiguous_failure_becomes_indeterminate_and_is_not_automatically_retried()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -126,7 +126,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(ContractOperationState.Indeterminate, retry.Operation?.State);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Stale_owner_cannot_complete_after_an_explicit_recovery_claim()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -163,7 +163,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(ContractConditionalWriteKind.Applied, recoveredCompletion);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Indeterminate_can_be_resolved_to_completed_by_recovery_version()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -183,7 +183,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(ContractOperationState.Completed, outcome?.State);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Cleanup_removes_only_expired_completed_records()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -207,7 +207,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(ContractOperationState.Indeterminate, (await driver.ReadOutcomeAsync(indeterminate, TestContext.Current.CancellationToken))?.State);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Cleanup_is_bounded_by_batch_size()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -219,7 +219,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(1, cleanup.DeletedCount);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Completed_record_survives_cleanup_during_its_retention_window()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -234,7 +234,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(ContractBeginKind.Completed, duplicate.Kind);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Purged_completed_key_is_a_new_operation_after_retention()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -248,7 +248,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(ContractBeginKind.Acquired, reused.Kind);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Cleanup_racing_completion_cannot_delete_the_active_operation()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -282,7 +282,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(ContractOperationState.Completed, outcome?.State);
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task One_hundred_simultaneous_same_key_reservations_have_exactly_one_owner()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -303,7 +303,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(99, results.Count(result => result.Kind == ContractBeginKind.AlreadyInProgress));
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Mixed_fingerprint_race_never_acquires_both_payloads()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -327,7 +327,7 @@ public abstract class StoreProviderContract<TFactory>
             item => Assert.Equal(ContractBeginKind.FingerprintMismatch, item.result.Kind));
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Transaction_rollback_removes_both_guard_and_business_mutation()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -343,7 +343,7 @@ public abstract class StoreProviderContract<TFactory>
         Assert.Equal(0, await driver.CountBusinessMutationsAsync("payment-rollback", TestContext.Current.CancellationToken));
     }
 
-    [Fact]
+    [ProviderFact]
     public async Task Transaction_commit_persists_guard_and_business_mutation_together()
     {
         await using var driver = await CreateResetDriverAsync();

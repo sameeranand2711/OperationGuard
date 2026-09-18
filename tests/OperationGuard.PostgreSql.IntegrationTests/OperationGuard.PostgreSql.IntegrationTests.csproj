@@ -4,7 +4,9 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/OperationGuard.PostgreSql/OperationGuard.PostgreSql.csproj" />
     <ProjectReference Include="../OperationGuard.Testing.Contracts/OperationGuard.Testing.Contracts.csproj" />
+    <PackageReference Include="Npgsql" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
