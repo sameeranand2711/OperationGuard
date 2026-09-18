@@ -43,15 +43,11 @@ public sealed class SqlServerOperationStore : IOperationStore
                 (IdentityHash, Scope, OperationName, IdempotencyKey, FingerprintAlgorithm,
                  FingerprintVersion, FingerprintDigest, State, OwnerToken, CreatedAt,
                  LeaseExpiresAt, ReplayBodyAvailable, RecoveryVersion)
-            SELECT
+            VALUES
+            (
                 @identityHash, @scope, @operationName, @idempotencyKey, @fingerprintAlgorithm,
                 @fingerprintVersion, @fingerprintDigest, 0, @ownerToken, @createdAt,
                 @leaseExpiresAt, 0, 0
-            WHERE NOT EXISTS
-            (
-                SELECT 1
-                FROM dbo.OperationGuardOperations WITH (UPDLOCK, HOLDLOCK)
-                WHERE IdentityHash = @identityHash
             )
             """,
         Select: """

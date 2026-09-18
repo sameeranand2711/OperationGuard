@@ -86,7 +86,7 @@ internal abstract class RelationalOperationStore : IOperationStore
         AddIdentityHash(command, identity);
         Add(command, "@expectedRecoveryVersion", expectedRecoveryVersion);
         Add(command, "@retainUntil", retainUntil);
-        AddResponse(command, response, response?.Body is not null, responseDigest: null);
+        AddResponseParameters(command, response, response?.Body is not null, responseDigest: null);
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1)
         {
             return ConditionalWriteKind.Applied;
@@ -309,7 +309,7 @@ internal abstract class RelationalOperationStore : IOperationStore
         AddIdentityHash(command, identity);
         Add(command, "@ownerToken", ownerToken);
         Add(command, "@retainUntil", retainUntil);
-        AddResponse(command, response, replayBodyAvailable, responseDigest);
+        AddResponseParameters(command, response, replayBodyAvailable, responseDigest);
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1)
         {
             return ConditionalWriteKind.Applied;
@@ -385,23 +385,43 @@ internal abstract class RelationalOperationStore : IOperationStore
         Add(command, "@fingerprintDigest", fingerprint.Digest);
     }
 
-    private static void AddResponse(
+    internal static void AddResponseParameters(
         DbCommand command,
         ReplayResponse? response,
         bool replayBodyAvailable,
         string? responseDigest)
     {
-        Add(command, "@statusCode", response?.StatusCode);
-        Add(command, "@responseHeaders", response is null ? null : JsonSerializer.Serialize(response.Headers));
-        Add(command, "@responseBody", response?.Body);
-        Add(command, "@replayBodyAvailable", replayBodyAvailable);
-        Add(command, "@responseDigest", responseDigest);
+        Add(command, "@statusCode", response?.StatusCode, DbType.Int32);
+        Add(
+            command,
+            "@responseHeaders",
+            response is null ? null : JsonSerializer.Serialize(response.Headers),
+            DbType.String,
+            size: -1);
+        Add(command, "@responseBody", response?.Body, DbType.Binary, size: -1);
+        Add(command, "@replayBodyAvailable", replayBodyAvailable, DbType.Boolean);
+        Add(command, "@responseDigest", responseDigest, DbType.String, size: 128);
     }
 
-    private static void Add(DbCommand command, string name, object? value)
+    private static void Add(
+        DbCommand command,
+        string name,
+        object? value,
+        DbType? dbType = null,
+        int? size = null)
     {
         var parameter = command.CreateParameter();
         parameter.ParameterName = name;
+        if (dbType is not null)
+        {
+            parameter.DbType = dbType.Value;
+        }
+
+        if (size is not null)
+        {
+            parameter.Size = size.Value;
+        }
+
         parameter.Value = value switch
         {
             null => DBNull.Value,

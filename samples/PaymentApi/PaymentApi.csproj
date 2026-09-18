@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="../../src/OperationGuard.AspNetCore/OperationGuard.AspNetCore.csproj" />
+    <ProjectReference Include="../../src/OperationGuard.PostgreSql/OperationGuard.PostgreSql.csproj" />
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+</Project>
