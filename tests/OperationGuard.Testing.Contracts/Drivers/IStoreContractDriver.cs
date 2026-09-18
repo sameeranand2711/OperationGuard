@@ -55,7 +55,25 @@ public interface IStoreContractDriver : IAsyncDisposable
         bool commit,
         CancellationToken cancellationToken);
 
+    ValueTask ExecuteEfCoreTransactionAsync(
+        Func<ITransactionalStoreContractSession, CancellationToken, ValueTask> action,
+        bool commit,
+        CancellationToken cancellationToken);
+
+    ValueTask ExecuteCommitThenDisconnectAsync(
+        ContractIdentity identity,
+        ContractFingerprint fingerprint,
+        string businessKey,
+        DateTimeOffset now,
+        TimeSpan leaseDuration,
+        DateTimeOffset retainUntil,
+        CancellationToken cancellationToken);
+
     ValueTask<int> CountBusinessMutationsAsync(string businessKey, CancellationToken cancellationToken);
+
+    ValueTask MutateStoredIdentityAsync(
+        ContractIdentity replacementIdentity,
+        CancellationToken cancellationToken);
 }
 
 public interface ITransactionalStoreContractSession
@@ -72,6 +90,9 @@ public interface ITransactionalStoreContractSession
     ValueTask<ContractConditionalWriteKind> CompleteAsync(
         ContractIdentity identity,
         string ownerToken,
+        ContractReplayResponse? response,
+        bool replayBodyAvailable,
+        string? responseDigest,
         DateTimeOffset retainUntil,
         CancellationToken cancellationToken);
 }

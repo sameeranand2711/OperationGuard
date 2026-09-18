@@ -176,6 +176,25 @@ public abstract class AspNetCoreBehaviorContract<TFactory>
     }
 
     [Fact]
+    public async Task Reversed_repeated_query_values_return_422_without_reexecution()
+    {
+        await using var driver = await CreateResetDriverAsync();
+        await driver.SendAsync(
+            Request(query: "?item=a&item=b"),
+            Handler("created"),
+            CancellationToken.None);
+
+        var response = await driver.SendAsync(
+            Request(query: "?item=b&item=a"),
+            Handler("must-not-run"),
+            CancellationToken.None);
+
+        Assert.Equal(422, response.StatusCode);
+        Assert.Equal(1, driver.HandlerInvocationCount);
+        AssertProblemDetails(response);
+    }
+
+    [Fact]
     public async Task Custom_fingerprint_can_define_semantic_equivalence_explicitly()
     {
         await using var driver = await CreateResetDriverAsync();
@@ -198,11 +217,12 @@ public abstract class AspNetCoreBehaviorContract<TFactory>
     private static ContractHttpRequest Request(
         string? key = "key-1",
         string body = "{\"amount\":100}",
-        bool useCustomFingerprint = false) => new(
+        bool useCustomFingerprint = false,
+        string query = "?currency=USD") => new(
         "tenant-a",
         "Payments.Create",
         "POST",
-        "?currency=USD",
+        query,
         key,
         "application/json",
         Encoding.UTF8.GetBytes(body),

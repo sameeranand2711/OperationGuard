@@ -1,10 +1,19 @@
 using OperationGuard.Testing.Contracts.Suites;
+using OperationGuard.Core.Models;
 using Xunit;
 
 namespace OperationGuard.Core.Tests;
 
 public sealed class ContractCatalogTests
 {
+    [Fact]
+    public void Persisted_operation_state_values_are_explicit_and_stable()
+    {
+        Assert.Equal(0, (int)OperationState.InProgress);
+        Assert.Equal(1, (int)OperationState.Completed);
+        Assert.Equal(2, (int)OperationState.Indeterminate);
+    }
+
     [Fact]
     public void Core_contract_contains_all_frozen_behavior_groups()
     {
@@ -13,6 +22,7 @@ public sealed class ContractCatalogTests
             "Identity_uses_scope_operation_name_and_key",
             "Identity_has_exact_ordinal_semantics",
             "Identity_rejects_empty_components",
+            "Identity_rejects_malformed_utf16_components",
             "Key_rejects_control_characters",
             "Default_key_length_accepts_255_and_rejects_256",
             "Hard_key_maximum_is_1024",
@@ -24,6 +34,7 @@ public sealed class ContractCatalogTests
             "Default_digest_is_sha256_and_versioned",
             "Operation_method_content_type_and_selected_headers_are_semantic_inputs",
             "Query_parameter_order_is_canonicalized",
+            "Repeated_query_value_order_is_preserved",
             "Raw_json_property_order_is_not_silently_canonicalized",
             "Default_fingerprint_rejects_body_above_one_mebibyte",
             "Custom_provider_is_used_and_observes_cancellation");

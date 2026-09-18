@@ -45,6 +45,15 @@ public abstract class FingerprintingContract<TFactory>
     }
 
     [Fact]
+    public void Repeated_query_value_order_is_preserved()
+    {
+        var first = Create(body: "{}", query: "?item=a&item=b");
+        var reversed = Create(body: "{}", query: "?item=b&item=a");
+
+        Assert.NotEqual(first, reversed);
+    }
+
+    [Fact]
     public void Raw_json_property_order_is_not_silently_canonicalized()
     {
         var amountFirst = Create(body: "{\"amount\":100,\"currency\":\"USD\"}");

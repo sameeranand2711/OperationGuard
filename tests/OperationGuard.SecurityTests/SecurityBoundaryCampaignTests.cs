@@ -1,4 +1,6 @@
 using System.Data.Common;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -7,6 +9,7 @@ using OperationGuard.AspNetCore.Metadata;
 using OperationGuard.Core;
 using OperationGuard.Core.Abstractions;
 using OperationGuard.Core.Execution;
+using OperationGuard.Core.Diagnostics;
 using OperationGuard.Core.Fingerprinting;
 using OperationGuard.Core.Models;
 using OperationGuard.Core.Testing;
@@ -188,6 +191,7 @@ public sealed class SecurityBoundaryCampaignTests
     [Fact]
     public async Task Unavailable_store_fails_closed_and_does_not_log_key_or_body()
     {
+        const string secretScope = "raw-secret-tenant-scope";
         const string secretKey = "raw-secret-idempotency-key";
         const string secretBody = "raw-secret-request-body";
         var store = new InMemoryOperationStore { Available = false };
@@ -195,7 +199,7 @@ public sealed class SecurityBoundaryCampaignTests
         var harness = new HttpHarness(store, middlewareLogger: logger);
 
         var response = await harness.SendAsync(
-            "tenant-a",
+            secretScope,
             secretKey,
             Encoding.UTF8.GetBytes(secretBody));
 
@@ -204,11 +208,13 @@ public sealed class SecurityBoundaryCampaignTests
         Assert.NotEmpty(logger.Entries);
         Assert.DoesNotContain(secretKey, logger.CombinedText, StringComparison.Ordinal);
         Assert.DoesNotContain(secretBody, logger.CombinedText, StringComparison.Ordinal);
+        Assert.DoesNotContain(secretScope, logger.CombinedText, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Ambiguous_message_log_does_not_contain_raw_key_or_payload_fingerprint()
     {
+        const string secretScope = "message-secret-tenant-scope";
         const string secretKey = "message-secret-key";
         const string secretFingerprint = "message-secret-payload-marker";
         var logger = new RecordingLogger<MessageOperationExecutor>();
@@ -217,7 +223,7 @@ public sealed class SecurityBoundaryCampaignTests
             store,
             timeProvider: new FixedTimeProvider(Now),
             logger: logger);
-        var identity = new OperationIdentity("tenant-a", "ProviderCallback.Settle", secretKey);
+        var identity = new OperationIdentity(secretScope, "ProviderCallback.Settle", secretKey);
 
         await Assert.ThrowsAsync<InjectedFaultException>(async () =>
             await executor.ExecuteAsync(
@@ -228,7 +234,89 @@ public sealed class SecurityBoundaryCampaignTests
         Assert.NotEmpty(logger.Entries);
         Assert.DoesNotContain(secretKey, logger.CombinedText, StringComparison.Ordinal);
         Assert.DoesNotContain(secretFingerprint, logger.CombinedText, StringComparison.Ordinal);
+        Assert.DoesNotContain(secretScope, logger.CombinedText, StringComparison.Ordinal);
         Assert.Equal(OperationState.Indeterminate, (await store.ReadOutcomeAsync(identity))?.State);
+    }
+
+    [Fact]
+    public async Task Activities_and_metrics_do_not_expose_raw_scope_key_body_or_fingerprint()
+    {
+        const string secretScope = "telemetry-secret-scope";
+        const string secretKey = "telemetry-secret-key";
+        const string secretFingerprint = "telemetry-secret-fingerprint";
+        var activityText = new List<string>();
+        var measurementText = new List<string>();
+        using var activityListener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == OperationGuardTelemetry.InstrumentationName,
+            Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity => activityText.Add(string.Join(
+                "|",
+                activity.TagObjects.Select(tag => $"{tag.Key}={tag.Value}"))),
+        };
+        ActivitySource.AddActivityListener(activityListener);
+        using var meterListener = new MeterListener();
+        meterListener.InstrumentPublished = (instrument, listener) =>
+        {
+            if (instrument.Meter.Name == OperationGuardTelemetry.InstrumentationName)
+            {
+                listener.EnableMeasurementEvents(instrument);
+            }
+        };
+        meterListener.SetMeasurementEventCallback<long>((instrument, measurement, tags, _) =>
+            measurementText.Add($"{instrument.Name}|{measurement}|{string.Join('|', tags.ToArray().Select(tag => $"{tag.Key}={tag.Value}"))}"));
+        meterListener.Start();
+        var executor = new MessageOperationExecutor(new InMemoryOperationStore(), timeProvider: new FixedTimeProvider(Now));
+
+        await executor.ExecuteAsync(
+            new OperationIdentity(secretScope, "ProviderCallback.Settle", secretKey),
+            OperationFingerprint.Sha256(secretFingerprint),
+            static _ => ValueTask.CompletedTask);
+        meterListener.RecordObservableInstruments();
+
+        var combined = string.Join(Environment.NewLine, activityText.Concat(measurementText));
+        Assert.DoesNotContain(secretScope, combined, StringComparison.Ordinal);
+        Assert.DoesNotContain(secretKey, combined, StringComparison.Ordinal);
+        Assert.DoesNotContain(secretFingerprint, combined, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Failed_mark_indeterminate_result_is_diagnosed_without_claiming_transition_succeeded()
+    {
+        var logger = new RecordingLogger<MessageOperationExecutor>();
+        var backend = new InMemoryOperationStore();
+        var store = new MarkIndeterminateFailureStore(backend);
+        var executor = new MessageOperationExecutor(store, timeProvider: new FixedTimeProvider(Now), logger: logger);
+
+        await Assert.ThrowsAsync<InjectedFaultException>(async () =>
+            await executor.ExecuteAsync(
+                new OperationIdentity("tenant", "ProviderCallback.Settle", "key"),
+                Fingerprint,
+                _ => throw new InjectedFaultException()));
+
+        Assert.Contains(nameof(ConditionalWriteKind.StaleOwner), logger.CombinedText, StringComparison.Ordinal);
+        Assert.DoesNotContain("became indeterminate", logger.CombinedText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Completion_commit_then_acknowledgement_loss_keeps_completed_outcome_and_reports_failed_fallback()
+    {
+        var backend = new InMemoryOperationStore();
+        var store = new ThrowAfterCompleteStore(backend);
+        var logger = new RecordingLogger<OperationGuardMiddleware>();
+        var harness = new HttpHarness(store, middlewareLogger: logger);
+        const string key = "commit-then-disconnect";
+        var body = Encoding.UTF8.GetBytes("request");
+
+        await Assert.ThrowsAsync<InjectedFaultException>(async () =>
+            await harness.SendAsync("tenant", key, body));
+        var stored = await backend.ReadOutcomeAsync(new OperationIdentity("tenant", "Payments.Create", key));
+        var duplicate = await harness.SendAsync("tenant", key, body);
+
+        Assert.Equal(OperationState.Completed, stored?.State);
+        Assert.Equal(StatusCodes.Status200OK, duplicate.StatusCode);
+        Assert.Equal(1, harness.HandlerInvocations);
+        Assert.Contains(nameof(ConditionalWriteKind.InvalidState), logger.CombinedText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -248,6 +336,25 @@ public sealed class SecurityBoundaryCampaignTests
         Assert.Equal(StatusCodes.Status409Conflict, retry.StatusCode);
         Assert.Equal(1, harness.HandlerInvocations);
         Assert.Equal(OperationState.Indeterminate, stored?.State);
+    }
+
+    [Fact]
+    public async Task Completion_and_indeterminate_fallback_double_fault_never_makes_the_operation_retryable()
+    {
+        var backend = new InMemoryOperationStore();
+        var store = new CompleteAndIndeterminateFailureStore(backend);
+        var harness = new HttpHarness(store);
+        const string key = "completion-double-fault";
+        var requestBody = Encoding.UTF8.GetBytes("request-body");
+
+        await Assert.ThrowsAsync<InjectedFaultException>(async () =>
+            await harness.SendAsync("tenant-a", key, requestBody));
+        var retry = await harness.SendAsync("tenant-a", key, requestBody);
+        var stored = await backend.ReadOutcomeAsync(new OperationIdentity("tenant-a", "Payments.Create", key));
+
+        Assert.Equal(StatusCodes.Status409Conflict, retry.StatusCode);
+        Assert.Equal(1, harness.HandlerInvocations);
+        Assert.Equal(OperationState.InProgress, stored?.State);
     }
 
     private static FingerprintInput Input(
@@ -471,5 +578,135 @@ public sealed class SecurityBoundaryCampaignTests
         public ITransactionalOperationStoreSession CreateSession(
             DbConnection connection,
             DbTransaction transaction) => backend.CreateSession(connection, transaction);
+    }
+
+    private sealed class MarkIndeterminateFailureStore(IOperationStore backend) : DelegatingStore(backend)
+    {
+        public override ValueTask<ConditionalWriteKind> MarkIndeterminateAsync(
+            OperationIdentity identity,
+            string ownerToken,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(ConditionalWriteKind.StaleOwner);
+    }
+
+    private sealed class ThrowAfterCompleteStore(IOperationStore backend) : DelegatingStore(backend)
+    {
+        private int _failurePending = 1;
+
+        public override async ValueTask<ConditionalWriteKind> CompleteAsync(
+            OperationIdentity identity,
+            string ownerToken,
+            ReplayResponse? response,
+            bool replayBodyAvailable,
+            string? responseDigest,
+            DateTimeOffset retainUntil,
+            CancellationToken cancellationToken = default)
+        {
+            var result = await Backend.CompleteAsync(
+                identity,
+                ownerToken,
+                response,
+                replayBodyAvailable,
+                responseDigest,
+                retainUntil,
+                cancellationToken);
+            if (Interlocked.Exchange(ref _failurePending, 0) == 1)
+            {
+                throw new InjectedFaultException();
+            }
+
+            return result;
+        }
+    }
+
+    private sealed class CompleteAndIndeterminateFailureStore(IOperationStore backend) : DelegatingStore(backend)
+    {
+        public override ValueTask<ConditionalWriteKind> CompleteAsync(
+            OperationIdentity identity,
+            string ownerToken,
+            ReplayResponse? response,
+            bool replayBodyAvailable,
+            string? responseDigest,
+            DateTimeOffset retainUntil,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<ConditionalWriteKind>(new InjectedFaultException());
+
+        public override ValueTask<ConditionalWriteKind> MarkIndeterminateAsync(
+            OperationIdentity identity,
+            string ownerToken,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<ConditionalWriteKind>(new InjectedFaultException());
+    }
+
+    private abstract class DelegatingStore(IOperationStore backend) : IOperationStore
+    {
+        protected IOperationStore Backend { get; } = backend;
+
+        public virtual ValueTask<OperationBeginResult> TryBeginAsync(
+            OperationIdentity identity,
+            OperationFingerprint fingerprint,
+            DateTimeOffset now,
+            TimeSpan leaseDuration,
+            CancellationToken cancellationToken = default) =>
+            Backend.TryBeginAsync(identity, fingerprint, now, leaseDuration, cancellationToken);
+
+        public virtual ValueTask<StoredOperation?> ReadOutcomeAsync(
+            OperationIdentity identity,
+            CancellationToken cancellationToken = default) =>
+            Backend.ReadOutcomeAsync(identity, cancellationToken);
+
+        public virtual ValueTask<ConditionalWriteKind> CompleteAsync(
+            OperationIdentity identity,
+            string ownerToken,
+            ReplayResponse? response,
+            bool replayBodyAvailable,
+            string? responseDigest,
+            DateTimeOffset retainUntil,
+            CancellationToken cancellationToken = default) =>
+            Backend.CompleteAsync(
+                identity,
+                ownerToken,
+                response,
+                replayBodyAvailable,
+                responseDigest,
+                retainUntil,
+                cancellationToken);
+
+        public virtual ValueTask<ConditionalWriteKind> MarkIndeterminateAsync(
+            OperationIdentity identity,
+            string ownerToken,
+            CancellationToken cancellationToken = default) =>
+            Backend.MarkIndeterminateAsync(identity, ownerToken, cancellationToken);
+
+        public virtual ValueTask<ConditionalWriteKind> ResolveIndeterminateAsync(
+            OperationIdentity identity,
+            long expectedRecoveryVersion,
+            ReplayResponse? response,
+            DateTimeOffset retainUntil,
+            CancellationToken cancellationToken = default) =>
+            Backend.ResolveIndeterminateAsync(identity, expectedRecoveryVersion, response, retainUntil, cancellationToken);
+
+        public virtual ValueTask<OperationBeginResult> AuthorizeRecoveryAttemptAsync(
+            OperationIdentity identity,
+            long expectedRecoveryVersion,
+            DateTimeOffset now,
+            TimeSpan leaseDuration,
+            CancellationToken cancellationToken = default) =>
+            Backend.AuthorizeRecoveryAttemptAsync(
+                identity,
+                expectedRecoveryVersion,
+                now,
+                leaseDuration,
+                cancellationToken);
+
+        public virtual ValueTask<CleanupResult> DeleteExpiredBatchAsync(
+            DateTimeOffset now,
+            int maximumCount,
+            CancellationToken cancellationToken = default) =>
+            Backend.DeleteExpiredBatchAsync(now, maximumCount, cancellationToken);
+
+        public virtual ITransactionalOperationStoreSession CreateSession(
+            DbConnection connection,
+            DbTransaction transaction) => Backend.CreateSession(connection, transaction);
     }
 }

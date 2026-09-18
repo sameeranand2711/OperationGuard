@@ -336,7 +336,8 @@ public abstract class StoreProviderContract<TFactory>
         {
             var begin = await session.TryBeginAsync(Identity, Fingerprint, Now, Lease, cancellationToken);
             await session.AddBusinessMutationAsync("payment-rollback", cancellationToken);
-            await session.CompleteAsync(Identity, begin.OwnerToken!, Now + Retention, cancellationToken);
+            await session.CompleteAsync(
+                Identity, begin.OwnerToken!, null, false, null, Now + Retention, cancellationToken);
         }, commit: false, TestContext.Current.CancellationToken);
 
         Assert.Null(await driver.ReadOutcomeAsync(Identity, TestContext.Current.CancellationToken));
@@ -352,7 +353,8 @@ public abstract class StoreProviderContract<TFactory>
         {
             var begin = await session.TryBeginAsync(Identity, Fingerprint, Now, Lease, cancellationToken);
             await session.AddBusinessMutationAsync("payment-commit", cancellationToken);
-            await session.CompleteAsync(Identity, begin.OwnerToken!, Now + Retention, cancellationToken);
+            await session.CompleteAsync(
+                Identity, begin.OwnerToken!, null, false, null, Now + Retention, cancellationToken);
         }, commit: true, TestContext.Current.CancellationToken);
 
         Assert.Equal(ContractOperationState.Completed, (await driver.ReadOutcomeAsync(Identity, TestContext.Current.CancellationToken))?.State);

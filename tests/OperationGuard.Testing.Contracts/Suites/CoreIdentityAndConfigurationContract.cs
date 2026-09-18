@@ -46,6 +46,18 @@ public abstract class CoreIdentityAndConfigurationContract<TFactory>
     }
 
     [Theory]
+    [InlineData("\ud800", "Payments.Create", "key")]
+    [InlineData("tenant", "Payments.\ud801Create", "key")]
+    [InlineData("tenant", "Payments.Create", "key-\udfff")]
+    public void Identity_rejects_malformed_utf16_components(
+        string scope,
+        string operationName,
+        string key)
+    {
+        Assert.ThrowsAny<ArgumentException>(() => _driver.CreateIdentity(scope, operationName, key));
+    }
+
+    [Theory]
     [InlineData("bad\rkey")]
     [InlineData("bad\nkey")]
     [InlineData("bad\0key")]
