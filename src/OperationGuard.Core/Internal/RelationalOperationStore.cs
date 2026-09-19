@@ -10,11 +10,18 @@ internal abstract class RelationalOperationStore : IOperationStore
 {
     private readonly Func<DbConnection> _connectionFactory;
     private readonly RelationalStoreSql _sql;
+    private readonly int _replayBodyLimitBytes;
 
-    protected RelationalOperationStore(Func<DbConnection> connectionFactory, RelationalStoreSql sql)
+    protected RelationalOperationStore(
+        Func<DbConnection> connectionFactory,
+        RelationalStoreSql sql,
+        OperationGuardOptions? options = null)
     {
         _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _sql = sql;
+        options ??= new OperationGuardOptions();
+        options.Validate();
+        _replayBodyLimitBytes = options.ReplayBodyLimitBytes;
     }
 
     protected abstract bool IsUniqueViolation(DbException exception);
@@ -80,10 +87,11 @@ internal abstract class RelationalOperationStore : IOperationStore
         DateTimeOffset retainUntil,
         CancellationToken cancellationToken = default)
     {
+        ReplayPersistenceValidator.Validate(response, _replayBodyLimitBytes);
         await using var connection = _connectionFactory();
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = CreateCommand(connection, null, _sql.ResolveIndeterminate);
-        AddIdentityHash(command, identity);
+        AddIdentity(command, identity);
         Add(command, "@expectedRecoveryVersion", expectedRecoveryVersion);
         Add(command, "@retainUntil", retainUntil);
         AddResponseParameters(command, response, response?.Body is not null, responseDigest: null);
@@ -112,9 +120,9 @@ internal abstract class RelationalOperationStore : IOperationStore
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         var owner = Guid.NewGuid().ToString("N");
         await using var command = CreateCommand(connection, null, _sql.AuthorizeRecovery);
-        AddIdentityHash(command, identity);
+        AddIdentity(command, identity);
         Add(command, "@expectedRecoveryVersion", expectedRecoveryVersion);
-        Add(command, "@ownerToken", owner);
+        AddOwnerToken(command, owner);
         Add(command, "@leaseExpiresAt", now.Add(leaseDuration));
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1)
         {
@@ -183,7 +191,7 @@ internal abstract class RelationalOperationStore : IOperationStore
         await using var command = CreateCommand(connection, transaction, _sql.Insert);
         AddIdentity(command, identity);
         AddFingerprint(command, fingerprint);
-        Add(command, "@ownerToken", owner);
+        AddOwnerToken(command, owner);
         Add(command, "@createdAt", now);
         Add(command, "@leaseExpiresAt", now.Add(leaseDuration));
         try
@@ -305,9 +313,10 @@ internal abstract class RelationalOperationStore : IOperationStore
         DateTimeOffset retainUntil,
         CancellationToken cancellationToken)
     {
+        ReplayPersistenceValidator.Validate(response, _replayBodyLimitBytes);
         await using var command = CreateCommand(connection, transaction, _sql.Complete);
-        AddIdentityHash(command, identity);
-        Add(command, "@ownerToken", ownerToken);
+        AddIdentity(command, identity);
+        AddOwnerToken(command, ownerToken);
         Add(command, "@retainUntil", retainUntil);
         AddResponseParameters(command, response, replayBodyAvailable, responseDigest);
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1)
@@ -326,8 +335,8 @@ internal abstract class RelationalOperationStore : IOperationStore
         CancellationToken cancellationToken)
     {
         await using var command = CreateCommand(connection, transaction, _sql.MarkIndeterminate);
-        AddIdentityHash(command, identity);
-        Add(command, "@ownerToken", ownerToken);
+        AddIdentity(command, identity);
+        AddOwnerToken(command, ownerToken);
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1)
         {
             return ConditionalWriteKind.Applied;
@@ -376,7 +385,15 @@ internal abstract class RelationalOperationStore : IOperationStore
     }
 
     private static void AddIdentityHash(DbCommand command, OperationIdentity identity) =>
-        Add(command, "@identityHash", IdentityStorageKey.Compute(identity));
+        Add(
+            command,
+            "@identityHash",
+            IdentityStorageKey.Compute(identity),
+            DbType.AnsiStringFixedLength,
+            size: 64);
+
+    private static void AddOwnerToken(DbCommand command, string ownerToken) =>
+        Add(command, "@ownerToken", ownerToken, DbType.AnsiStringFixedLength, size: 32);
 
     private static void AddFingerprint(DbCommand command, OperationFingerprint fingerprint)
     {

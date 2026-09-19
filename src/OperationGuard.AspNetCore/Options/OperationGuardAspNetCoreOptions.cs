@@ -50,10 +50,7 @@ public sealed class OperationGuardAspNetCoreOptions
             InProgressStaleAfter = InProgressStaleAfter,
         };
         options.Validate();
-        if (string.IsNullOrWhiteSpace(IdempotencyKeyHeaderName))
-        {
-            throw new ArgumentException("The idempotency key header name is required.", nameof(IdempotencyKeyHeaderName));
-        }
+        ValidateHeaderName(IdempotencyKeyHeaderName, nameof(IdempotencyKeyHeaderName));
 
         ArgumentNullException.ThrowIfNull(ScopeResolver);
         ValidateHeaderNames(FingerprintHeaders, nameof(FingerprintHeaders));
@@ -71,9 +68,35 @@ public sealed class OperationGuardAspNetCoreOptions
     private static void ValidateHeaderNames(IReadOnlyCollection<string> names, string parameterName)
     {
         ArgumentNullException.ThrowIfNull(names, parameterName);
-        if (names.Any(string.IsNullOrWhiteSpace))
+        foreach (var name in names)
         {
-            throw new ArgumentException("Header names cannot be empty.", parameterName);
+            ValidateHeaderName(name, parameterName);
         }
     }
+
+    internal bool IsReplayHeaderAllowed(string name) =>
+        IsHttpToken(name)
+        && !ForbiddenReplayHeaders.Contains(name)
+        && ReplayHeaders.Contains(name, StringComparer.OrdinalIgnoreCase);
+
+    internal static bool HasSafeHeaderValues(IEnumerable<string?> values) =>
+        values.All(value => value is not null && value.IndexOfAny(['\r', '\n', '\0']) < 0);
+
+    private static void ValidateHeaderName(string name, string parameterName)
+    {
+        if (!IsHttpToken(name))
+        {
+            throw new ArgumentException("Header names must be valid RFC HTTP tokens.", parameterName);
+        }
+    }
+
+    private static bool IsHttpToken(string value) =>
+        !string.IsNullOrEmpty(value) && value.All(IsTokenCharacter);
+
+    private static bool IsTokenCharacter(char value) =>
+        value is >= '0' and <= '9'
+            or >= 'A' and <= 'Z'
+            or >= 'a' and <= 'z'
+            or '!' or '#' or '$' or '%' or '&' or '\'' or '*' or '+' or '-' or '.'
+            or '^' or '_' or '`' or '|' or '~';
 }

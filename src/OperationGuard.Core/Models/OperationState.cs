@@ -2,7 +2,7 @@ namespace OperationGuard.Core.Models;
 
 public enum OperationState
 {
-    InProgress,
-    Completed,
-    Indeterminate,
+    InProgress = 0,
+    Completed = 1,
+    Indeterminate = 2,
 }

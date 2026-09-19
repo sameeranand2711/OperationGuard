@@ -18,9 +18,13 @@ internal static class PaymentEndpoint
     internal static ValueTask<string> ResolveTenantScopeAsync(HttpContext context, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return TryReadSingleHeader(context.Request.Headers, "X-Tenant-Id", out var tenant)
+        var tenant = context.User.Identity?.IsAuthenticated == true
+            ? context.User.FindFirst("tenant_id")?.Value
+            : null;
+        return !string.IsNullOrWhiteSpace(tenant)
             ? ValueTask.FromResult(tenant)
-            : ValueTask.FromException<string>(new ArgumentException("A single X-Tenant-Id header is required."));
+            : ValueTask.FromException<string>(
+                new InvalidOperationException("An authenticated tenant_id claim is required to establish payment scope."));
     }
 
     internal static async Task<IResult> HandleAsync(

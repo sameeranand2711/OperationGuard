@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System.Diagnostics.Metrics;
 using OperationGuard.Core.Abstractions;
 using OperationGuard.Core.Diagnostics;
+using OperationGuard.Core.Internal;
 using OperationGuard.Core.Models;
 
 namespace OperationGuard.Core.Execution;
@@ -39,7 +40,8 @@ public sealed class MessageOperationExecutor
         ArgumentNullException.ThrowIfNull(handler);
         using var activity = OperationGuardTelemetry.ActivitySource.StartActivity("message.execute");
         activity?.SetTag("operation.name", identity.OperationName);
-        activity?.SetTag("operation.scope", identity.Scope);
+        var scopeHash = SensitiveValueRedactor.HashForDiagnostics(identity.Scope);
+        activity?.SetTag("operation.scope_hash", scopeHash);
 
         var now = _timeProvider.GetUtcNow();
         var begin = await _store.TryBeginAsync(
@@ -75,9 +77,43 @@ public sealed class MessageOperationExecutor
         }
         catch (Exception exception)
         {
-            await _store.MarkIndeterminateAsync(identity, begin.OwnerToken!, CancellationToken.None).ConfigureAwait(false);
-            _logger.LogWarning(exception, "A protected message operation became indeterminate for operation {OperationName} in scope {Scope}.", identity.OperationName, identity.Scope);
-            Executions.Add(1, new KeyValuePair<string, object?>("result", "indeterminate"));
+            ConditionalWriteKind? fallbackResult = null;
+            try
+            {
+                fallbackResult = await _store.MarkIndeterminateAsync(
+                    identity,
+                    begin.OwnerToken!,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception fallbackException)
+            {
+                _logger.LogError(
+                    fallbackException,
+                    "Failed to mark a protected message operation indeterminate for operation {OperationName} in scope hash {ScopeHash}.",
+                    identity.OperationName,
+                    scopeHash);
+            }
+
+            if (fallbackResult == ConditionalWriteKind.Applied)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "A protected message operation became indeterminate for operation {OperationName} in scope hash {ScopeHash}.",
+                    identity.OperationName,
+                    scopeHash);
+                Executions.Add(1, new KeyValuePair<string, object?>("result", "indeterminate"));
+            }
+            else
+            {
+                _logger.LogError(
+                    exception,
+                    "A protected message operation failed and its indeterminate fallback returned {FallbackResult} for operation {OperationName} in scope hash {ScopeHash}.",
+                    fallbackResult?.ToString() ?? "exception",
+                    identity.OperationName,
+                    scopeHash);
+                Executions.Add(1, new KeyValuePair<string, object?>("result", "indeterminate_fallback_failed"));
+            }
+
             throw;
         }
     }

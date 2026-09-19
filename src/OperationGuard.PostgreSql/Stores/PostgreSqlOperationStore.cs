@@ -1,4 +1,5 @@
 using System.Data.Common;
+using OperationGuard.Core;
 using OperationGuard.Core.Abstractions;
 using OperationGuard.Core.Internal;
 using OperationGuard.Core.Models;
@@ -59,12 +60,20 @@ public sealed class PostgreSqlOperationStore : IOperationStore
                 response_headers = @responseHeaders, response_body = @responseBody,
                 replay_body_available = @replayBodyAvailable, retain_until = @retainUntil,
                 response_digest = @responseDigest
-            WHERE identity_hash = @identityHash AND state = 0 AND owner_token = @ownerToken
+            WHERE identity_hash = @identityHash
+              AND convert_to(scope, 'UTF8') = convert_to(@scope, 'UTF8')
+              AND convert_to(operation_name, 'UTF8') = convert_to(@operationName, 'UTF8')
+              AND convert_to(idempotency_key, 'UTF8') = convert_to(@idempotencyKey, 'UTF8')
+              AND state = 0 AND owner_token = @ownerToken
             """,
         MarkIndeterminate: """
             UPDATE operation_guard_operations
             SET state = 2, owner_token = NULL, lease_expires_at = NULL, recovery_version = recovery_version + 1
-            WHERE identity_hash = @identityHash AND state = 0 AND owner_token = @ownerToken
+            WHERE identity_hash = @identityHash
+              AND convert_to(scope, 'UTF8') = convert_to(@scope, 'UTF8')
+              AND convert_to(operation_name, 'UTF8') = convert_to(@operationName, 'UTF8')
+              AND convert_to(idempotency_key, 'UTF8') = convert_to(@idempotencyKey, 'UTF8')
+              AND state = 0 AND owner_token = @ownerToken
             """,
         ResolveIndeterminate: """
             UPDATE operation_guard_operations
@@ -72,13 +81,21 @@ public sealed class PostgreSqlOperationStore : IOperationStore
                 response_body = @responseBody, replay_body_available = @replayBodyAvailable,
                 retain_until = @retainUntil, response_digest = @responseDigest,
                 recovery_version = recovery_version + 1
-            WHERE identity_hash = @identityHash AND state = 2 AND recovery_version = @expectedRecoveryVersion
+            WHERE identity_hash = @identityHash
+              AND convert_to(scope, 'UTF8') = convert_to(@scope, 'UTF8')
+              AND convert_to(operation_name, 'UTF8') = convert_to(@operationName, 'UTF8')
+              AND convert_to(idempotency_key, 'UTF8') = convert_to(@idempotencyKey, 'UTF8')
+              AND state = 2 AND recovery_version = @expectedRecoveryVersion
             """,
         AuthorizeRecovery: """
             UPDATE operation_guard_operations
             SET state = 0, owner_token = @ownerToken, lease_expires_at = @leaseExpiresAt,
                 recovery_version = recovery_version + 1
-            WHERE identity_hash = @identityHash AND state = 2 AND recovery_version = @expectedRecoveryVersion
+            WHERE identity_hash = @identityHash
+              AND convert_to(scope, 'UTF8') = convert_to(@scope, 'UTF8')
+              AND convert_to(operation_name, 'UTF8') = convert_to(@operationName, 'UTF8')
+              AND convert_to(idempotency_key, 'UTF8') = convert_to(@idempotencyKey, 'UTF8')
+              AND state = 2 AND recovery_version = @expectedRecoveryVersion
             """,
         DeleteExpired: """
             DELETE FROM operation_guard_operations
@@ -95,9 +112,11 @@ public sealed class PostgreSqlOperationStore : IOperationStore
 
     private readonly Implementation _implementation;
 
-    public PostgreSqlOperationStore(Func<DbConnection> connectionFactory)
+    public PostgreSqlOperationStore(
+        Func<DbConnection> connectionFactory,
+        OperationGuardOptions? options = null)
     {
-        _implementation = new Implementation(connectionFactory);
+        _implementation = new Implementation(connectionFactory, options);
     }
 
     public ValueTask EnsureCreatedAsync(CancellationToken cancellationToken = default) =>
@@ -127,7 +146,9 @@ public sealed class PostgreSqlOperationStore : IOperationStore
     public ITransactionalOperationStoreSession CreateSession(DbConnection connection, DbTransaction transaction) =>
         _implementation.CreateSession(connection, transaction);
 
-    private sealed class Implementation(Func<DbConnection> connectionFactory) : RelationalOperationStore(connectionFactory, Sql)
+    private sealed class Implementation(
+        Func<DbConnection> connectionFactory,
+        OperationGuardOptions? options) : RelationalOperationStore(connectionFactory, Sql, options)
     {
         public ValueTask EnsureCreatedAsync(CancellationToken cancellationToken) =>
             ExecuteSchemaAsync(SchemaSql, cancellationToken);

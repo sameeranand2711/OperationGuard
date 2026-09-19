@@ -1,4 +1,5 @@
 using System.Data.Common;
+using OperationGuard.Core;
 using OperationGuard.Core.Abstractions;
 using OperationGuard.Core.Internal;
 using OperationGuard.Core.Models;
@@ -32,9 +33,17 @@ public sealed class SqlServerOperationStore : IOperationStore
                 RecoveryVersion bigint NOT NULL,
                 CONSTRAINT CK_OperationGuardOperations_State CHECK (State IN (0, 1, 2))
             );
+        END
+
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes
+            WHERE object_id = OBJECT_ID(N'dbo.OperationGuardOperations', N'U')
+              AND name = N'IX_OperationGuardOperations_Cleanup'
+        )
             CREATE INDEX IX_OperationGuardOperations_Cleanup
                 ON dbo.OperationGuardOperations(State, RetainUntil);
-        END
         """;
 
     private static readonly RelationalStoreSql Sql = new(
@@ -64,12 +73,20 @@ public sealed class SqlServerOperationStore : IOperationStore
                 ResponseHeaders = @responseHeaders, ResponseBody = @responseBody,
                 ReplayBodyAvailable = @replayBodyAvailable, RetainUntil = @retainUntil,
                 ResponseDigest = @responseDigest
-            WHERE IdentityHash = @identityHash AND State = 0 AND OwnerToken = @ownerToken
+            WHERE IdentityHash = @identityHash
+              AND CONVERT(varbinary(max), Scope) = CONVERT(varbinary(max), @scope)
+              AND CONVERT(varbinary(max), OperationName) = CONVERT(varbinary(max), @operationName)
+              AND CONVERT(varbinary(max), IdempotencyKey) = CONVERT(varbinary(max), @idempotencyKey)
+              AND State = 0 AND OwnerToken = @ownerToken
             """,
         MarkIndeterminate: """
             UPDATE dbo.OperationGuardOperations
             SET State = 2, OwnerToken = NULL, LeaseExpiresAt = NULL, RecoveryVersion = RecoveryVersion + 1
-            WHERE IdentityHash = @identityHash AND State = 0 AND OwnerToken = @ownerToken
+            WHERE IdentityHash = @identityHash
+              AND CONVERT(varbinary(max), Scope) = CONVERT(varbinary(max), @scope)
+              AND CONVERT(varbinary(max), OperationName) = CONVERT(varbinary(max), @operationName)
+              AND CONVERT(varbinary(max), IdempotencyKey) = CONVERT(varbinary(max), @idempotencyKey)
+              AND State = 0 AND OwnerToken = @ownerToken
             """,
         ResolveIndeterminate: """
             UPDATE dbo.OperationGuardOperations
@@ -77,13 +94,21 @@ public sealed class SqlServerOperationStore : IOperationStore
                 ResponseBody = @responseBody, ReplayBodyAvailable = @replayBodyAvailable,
                 RetainUntil = @retainUntil, ResponseDigest = @responseDigest,
                 RecoveryVersion = RecoveryVersion + 1
-            WHERE IdentityHash = @identityHash AND State = 2 AND RecoveryVersion = @expectedRecoveryVersion
+            WHERE IdentityHash = @identityHash
+              AND CONVERT(varbinary(max), Scope) = CONVERT(varbinary(max), @scope)
+              AND CONVERT(varbinary(max), OperationName) = CONVERT(varbinary(max), @operationName)
+              AND CONVERT(varbinary(max), IdempotencyKey) = CONVERT(varbinary(max), @idempotencyKey)
+              AND State = 2 AND RecoveryVersion = @expectedRecoveryVersion
             """,
         AuthorizeRecovery: """
             UPDATE dbo.OperationGuardOperations
             SET State = 0, OwnerToken = @ownerToken, LeaseExpiresAt = @leaseExpiresAt,
                 RecoveryVersion = RecoveryVersion + 1
-            WHERE IdentityHash = @identityHash AND State = 2 AND RecoveryVersion = @expectedRecoveryVersion
+            WHERE IdentityHash = @identityHash
+              AND CONVERT(varbinary(max), Scope) = CONVERT(varbinary(max), @scope)
+              AND CONVERT(varbinary(max), OperationName) = CONVERT(varbinary(max), @operationName)
+              AND CONVERT(varbinary(max), IdempotencyKey) = CONVERT(varbinary(max), @idempotencyKey)
+              AND State = 2 AND RecoveryVersion = @expectedRecoveryVersion
             """,
         DeleteExpired: """
             WITH expired AS
@@ -100,9 +125,11 @@ public sealed class SqlServerOperationStore : IOperationStore
 
     private readonly Implementation _implementation;
 
-    public SqlServerOperationStore(Func<DbConnection> connectionFactory)
+    public SqlServerOperationStore(
+        Func<DbConnection> connectionFactory,
+        OperationGuardOptions? options = null)
     {
-        _implementation = new Implementation(connectionFactory);
+        _implementation = new Implementation(connectionFactory, options);
     }
 
     public ValueTask EnsureCreatedAsync(CancellationToken cancellationToken = default) =>
@@ -132,7 +159,9 @@ public sealed class SqlServerOperationStore : IOperationStore
     public ITransactionalOperationStoreSession CreateSession(DbConnection connection, DbTransaction transaction) =>
         _implementation.CreateSession(connection, transaction);
 
-    private sealed class Implementation(Func<DbConnection> connectionFactory) : RelationalOperationStore(connectionFactory, Sql)
+    private sealed class Implementation(
+        Func<DbConnection> connectionFactory,
+        OperationGuardOptions? options) : RelationalOperationStore(connectionFactory, Sql, options)
     {
         public ValueTask EnsureCreatedAsync(CancellationToken cancellationToken) =>
             ExecuteSchemaAsync(SchemaSql, cancellationToken);

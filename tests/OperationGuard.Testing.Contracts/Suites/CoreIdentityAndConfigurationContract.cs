@@ -45,16 +45,21 @@ public abstract class CoreIdentityAndConfigurationContract<TFactory>
         Assert.ThrowsAny<ArgumentException>(() => _driver.CreateIdentity(scope, operationName, key));
     }
 
-    [Theory]
-    [InlineData("\ud800", "Payments.Create", "key")]
-    [InlineData("tenant", "Payments.\ud801Create", "key")]
-    [InlineData("tenant", "Payments.Create", "key-\udfff")]
-    public void Identity_rejects_malformed_utf16_components(
-        string scope,
-        string operationName,
-        string key)
+    [Fact]
+    public void Identity_rejects_malformed_utf16_components()
     {
-        Assert.ThrowsAny<ArgumentException>(() => _driver.CreateIdentity(scope, operationName, key));
+        var loneHighSurrogate = new string((char)0xd800, 1);
+        var loneLowSurrogate = new string((char)0xdfff, 1);
+        var malformedIdentities = new[]
+        {
+            (Scope: loneHighSurrogate, OperationName: "Payments.Create", Key: "key"),
+            (Scope: "tenant", OperationName: $"Payments.{loneHighSurrogate}Create", Key: "key"),
+            (Scope: "tenant", OperationName: "Payments.Create", Key: $"key-{loneLowSurrogate}"),
+        };
+
+        Assert.All(malformedIdentities, identity =>
+            Assert.ThrowsAny<ArgumentException>(() =>
+                _driver.CreateIdentity(identity.Scope, identity.OperationName, identity.Key)));
     }
 
     [Theory]

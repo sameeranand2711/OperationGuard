@@ -55,8 +55,19 @@ public sealed class Sha256RequestFingerprintProvider : IRequestFingerprintProvid
     private static string CanonicalizeQuery(string query)
     {
         var value = query.StartsWith('?') ? query[1..] : query;
-        return string.Join('&', value.Split('&', StringSplitOptions.RemoveEmptyEntries)
-            .OrderBy(part => part, StringComparer.Ordinal));
+        return string.Join(
+            '&',
+            value.Split('&', StringSplitOptions.RemoveEmptyEntries)
+                .Select((part, index) => new QueryPart(
+                    part,
+                    part.AsSpan().IndexOf('=') is var equalsIndex && equalsIndex >= 0
+                        ? part[..equalsIndex]
+                        : part,
+                    index))
+                .GroupBy(part => part.Key, StringComparer.Ordinal)
+                .OrderBy(group => group.Key, StringComparer.Ordinal)
+                .SelectMany(group => group.OrderBy(part => part.Index))
+                .Select(part => part.Value));
     }
 
     private static void Append(IncrementalHash hash, string value) => Append(hash, Encoding.UTF8.GetBytes(value));
@@ -68,4 +79,6 @@ public sealed class Sha256RequestFingerprintProvider : IRequestFingerprintProvid
         hash.AppendData(length);
         hash.AppendData(value);
     }
+
+    private readonly record struct QueryPart(string Value, string Key, int Index);
 }

@@ -5,6 +5,25 @@ internal static class IdentityValidator
     public static void ValidateComponent(string value, string parameterName)
     {
         ArgumentException.ThrowIfNullOrEmpty(value, parameterName);
+        for (var index = 0; index < value.Length; index++)
+        {
+            var current = value[index];
+            if (char.IsHighSurrogate(current)
+                && index + 1 < value.Length
+                && char.IsLowSurrogate(value[index + 1]))
+            {
+                index++;
+                continue;
+            }
+
+            if (char.IsSurrogate(current))
+            {
+                throw new ArgumentException(
+                    "Operation identity components must contain well-formed UTF-16 text.",
+                    parameterName);
+            }
+        }
+
         if (value.Any(char.IsControl))
         {
             throw new ArgumentException("Operation identity components cannot contain control characters.", parameterName);

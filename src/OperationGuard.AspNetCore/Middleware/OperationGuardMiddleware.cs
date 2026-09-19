@@ -101,7 +101,10 @@ public sealed class OperationGuardMiddleware
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !context.RequestAborted.IsCancellationRequested)
         {
-            _logger.LogError(exception, "The operation protection store was unavailable for operation {OperationName} in scope {Scope}.", operationName, scope);
+            _logger.LogError(
+                exception,
+                "The operation protection store was unavailable for operation {OperationName}.",
+                operationName);
             await WriteProblemAsync(context, 503, "store-unavailable", "Operation protection is temporarily unavailable.").ConfigureAwait(false);
             return;
         }
@@ -148,8 +151,14 @@ public sealed class OperationGuardMiddleware
         catch
         {
             context.Response.Body = originalBody;
-            await store.MarkIndeterminateAsync(identity, ownerToken, CancellationToken.None).ConfigureAwait(false);
-            Requests.Add(1, new KeyValuePair<string, object?>("result", "indeterminate"));
+            var fallback = await TryMarkIndeterminateAsync(store, identity, ownerToken).ConfigureAwait(false);
+            Requests.Add(
+                1,
+                new KeyValuePair<string, object?>(
+                    "result",
+                    fallback == ConditionalWriteKind.Applied
+                        ? "indeterminate"
+                        : "indeterminate_fallback_failed"));
             throw;
         }
 
@@ -175,30 +184,72 @@ public sealed class OperationGuardMiddleware
         }
         catch
         {
-            await store.MarkIndeterminateAsync(identity, ownerToken, CancellationToken.None).ConfigureAwait(false);
+            await TryMarkIndeterminateAsync(store, identity, ownerToken).ConfigureAwait(false);
             throw;
         }
 
         Requests.Add(1, new KeyValuePair<string, object?>("result", "completed"));
     }
 
-    private static async Task ReplayAsync(HttpContext context, StoredOperation operation)
+    private async Task ReplayAsync(HttpContext context, StoredOperation operation)
     {
-        if (!operation.ReplayBodyAvailable || operation.Response?.Body is null)
+        if (!operation.ReplayBodyAvailable
+            || operation.Response?.Body is not { } body
+            || body.Length > _coreOptions.ReplayBodyLimitBytes
+            || body.Length > OperationGuardOptions.HardReplayBodyLimitBytes
+            || operation.Response.StatusCode is < 100 or > 999)
         {
             await WriteProblemAsync(context, 409, "replay-unavailable", "The operation completed, but its response body is unavailable for replay.").ConfigureAwait(false);
             return;
         }
 
         context.Response.StatusCode = operation.Response.StatusCode;
-        foreach (var header in operation.Response.Headers)
+        foreach (var header in operation.Response.Headers ?? new Dictionary<string, string[]>())
         {
+            if (!_options.IsReplayHeaderAllowed(header.Key)
+                || header.Value is null
+                || !OperationGuardAspNetCoreOptions.HasSafeHeaderValues(header.Value))
+            {
+                continue;
+            }
+
             context.Response.Headers[header.Key] = new StringValues(header.Value);
         }
 
-        context.Response.ContentLength = operation.Response.Body.Length;
-        await context.Response.Body.WriteAsync(operation.Response.Body, context.RequestAborted).ConfigureAwait(false);
+        context.Response.ContentLength = body.Length;
+        await context.Response.Body.WriteAsync(body, context.RequestAborted).ConfigureAwait(false);
         Requests.Add(1, new KeyValuePair<string, object?>("result", "replayed"));
+    }
+
+    private async ValueTask<ConditionalWriteKind?> TryMarkIndeterminateAsync(
+        IOperationStore store,
+        OperationIdentity identity,
+        string ownerToken)
+    {
+        try
+        {
+            var result = await store.MarkIndeterminateAsync(
+                identity,
+                ownerToken,
+                CancellationToken.None).ConfigureAwait(false);
+            if (result != ConditionalWriteKind.Applied)
+            {
+                _logger.LogError(
+                    "The indeterminate fallback returned {FallbackResult} for operation {OperationName}.",
+                    result,
+                    identity.OperationName);
+            }
+
+            return result;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "The indeterminate fallback failed for operation {OperationName}.",
+                identity.OperationName);
+            return null;
+        }
     }
 
     private bool TryReadKey(IHeaderDictionary headers, out string key)

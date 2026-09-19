@@ -135,6 +135,7 @@ public sealed class InMemoryOperationStore : IOperationStore
                 return ValueTask.FromResult(ConditionalWriteKind.NotFound);
             }
 
+            EnsureIdentity(operation.Identity, identity);
             if (operation.State != OperationState.Indeterminate || operation.RecoveryVersion != expectedRecoveryVersion)
             {
                 return ValueTask.FromResult(ConditionalWriteKind.InvalidState);
@@ -174,6 +175,7 @@ public sealed class InMemoryOperationStore : IOperationStore
                 return ValueTask.FromResult(new OperationBeginResult(OperationBeginKind.Indeterminate, null, null));
             }
 
+            EnsureIdentity(operation.Identity, identity);
             if (operation.State != OperationState.Indeterminate || operation.RecoveryVersion != expectedRecoveryVersion)
             {
                 return ValueTask.FromResult(new OperationBeginResult(ToBeginKind(operation.State), null, operation));
@@ -249,6 +251,7 @@ public sealed class InMemoryOperationStore : IOperationStore
                 return ValueTask.FromResult(ConditionalWriteKind.NotFound);
             }
 
+            EnsureIdentity(operation.Identity, identity);
             if (operation.State != OperationState.InProgress)
             {
                 return ValueTask.FromResult(ConditionalWriteKind.InvalidState);
