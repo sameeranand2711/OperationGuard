@@ -10,7 +10,21 @@ public sealed class InMemoryOperationStore : IOperationStore
 {
     private readonly object _sync = new();
     private readonly Dictionary<string, StoredOperation> _operations = new(StringComparer.Ordinal);
+    private readonly OperationGuardOptions _replayOptions;
     private bool _available = true;
+
+    public InMemoryOperationStore(OperationGuardOptions? options = null)
+    {
+        options ??= new OperationGuardOptions();
+        options.Validate();
+        _replayOptions = new OperationGuardOptions
+        {
+            ReplayBodyLimitBytes = options.ReplayBodyLimitBytes,
+            MaximumReplayHeaderCount = options.MaximumReplayHeaderCount,
+            MaximumReplayHeaderValueBytes = options.MaximumReplayHeaderValueBytes,
+            MaximumReplayHeadersTotalBytes = options.MaximumReplayHeadersTotalBytes,
+        };
+    }
 
     public bool Available
     {
@@ -94,8 +108,10 @@ public sealed class InMemoryOperationStore : IOperationStore
         bool replayBodyAvailable,
         string? responseDigest,
         DateTimeOffset retainUntil,
-        CancellationToken cancellationToken = default) =>
-        UpdateOwnedAsync(identity, ownerToken, operation => operation with
+        CancellationToken cancellationToken = default)
+    {
+        ReplayPersistenceValidator.ValidateForPersistence(response, _replayOptions);
+        return UpdateOwnedAsync(identity, ownerToken, operation => operation with
         {
             State = OperationState.Completed,
             OwnerToken = null,
@@ -105,6 +121,7 @@ public sealed class InMemoryOperationStore : IOperationStore
             ReplayBodyAvailable = replayBodyAvailable,
             ResponseDigest = responseDigest,
         }, cancellationToken);
+    }
 
     public ValueTask<ConditionalWriteKind> MarkIndeterminateAsync(
         OperationIdentity identity,
@@ -125,6 +142,7 @@ public sealed class InMemoryOperationStore : IOperationStore
         DateTimeOffset retainUntil,
         CancellationToken cancellationToken = default)
     {
+        ReplayPersistenceValidator.ValidateForPersistence(response, _replayOptions);
         cancellationToken.ThrowIfCancellationRequested();
         EnsureAvailable();
         lock (_sync)

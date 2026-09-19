@@ -13,19 +13,8 @@ namespace PaymentApi;
 
 internal static class PaymentEndpoint
 {
+    private const string DemoScope = "payment-api-demo";
     private const string OperationName = "Payments.Create";
-
-    internal static ValueTask<string> ResolveTenantScopeAsync(HttpContext context, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var tenant = context.User.Identity?.IsAuthenticated == true
-            ? context.User.FindFirst("tenant_id")?.Value
-            : null;
-        return !string.IsNullOrWhiteSpace(tenant)
-            ? ValueTask.FromResult(tenant)
-            : ValueTask.FromException<string>(
-                new InvalidOperationException("An authenticated tenant_id claim is required to establish payment scope."));
-    }
 
     internal static async Task<IResult> HandleAsync(
         PaymentRequest request,
@@ -47,7 +36,7 @@ internal static class PaymentEndpoint
         NormalizedPayment normalized;
         try
         {
-            scope = await httpOptions.ScopeResolver(context, cancellationToken);
+            scope = DemoScope;
             identity = OperationIdentity.Create(scope, OperationName, idempotencyKey, options.MaximumKeyLength);
             normalized = Normalize(request);
         }
@@ -174,16 +163,28 @@ internal static class PaymentEndpoint
             return Problem(409, "replay-unavailable", "The payment completed, but its stored response body is unavailable.");
         }
 
-        foreach (var header in operation.Response.Headers)
+        PaymentResponse? response;
+        try
         {
-            context.Response.Headers[header.Key] = new StringValues(header.Value);
+            response = JsonSerializer.Deserialize(
+                operation.Response.Body,
+                PaymentJsonContext.Default.PaymentResponse);
+        }
+        catch (JsonException)
+        {
+            return Problem(409, "replay-unavailable", "The payment completed, but its stored response is unsafe for replay.");
         }
 
-        context.Response.StatusCode = operation.Response.StatusCode;
-        var contentType = operation.Response.Headers.TryGetValue("Content-Type", out var values)
-            ? values.SingleOrDefault()
-            : null;
-        return Results.Bytes(operation.Response.Body, contentType ?? "application/json");
+        if (response is null)
+        {
+            return Problem(409, "replay-unavailable", "The payment completed, but its stored response is unsafe for replay.");
+        }
+
+        context.Response.Headers.Location = $"/payments/{response.PaymentId:D}";
+        return Results.Json(
+            response,
+            PaymentJsonContext.Default.PaymentResponse,
+            statusCode: StatusCodes.Status201Created);
     }
 
     private static NormalizedPayment Normalize(PaymentRequest request)

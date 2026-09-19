@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using OperationGuard.Core;
+using OperationGuard.Core.Internal;
 
 namespace OperationGuard.AspNetCore;
 
@@ -28,6 +29,12 @@ public sealed class OperationGuardAspNetCoreOptions
 
     public int ReplayBodyLimitBytes { get; set; } = OperationGuardOptions.DefaultReplayBodyLimitBytes;
 
+    public int MaximumReplayHeaderCount { get; set; } = OperationGuardOptions.DefaultMaximumReplayHeaderCount;
+
+    public int MaximumReplayHeaderValueBytes { get; set; } = OperationGuardOptions.DefaultMaximumReplayHeaderValueBytes;
+
+    public int MaximumReplayHeadersTotalBytes { get; set; } = OperationGuardOptions.DefaultMaximumReplayHeadersTotalBytes;
+
     public TimeSpan CompletedRetention { get; set; } = TimeSpan.FromHours(24);
 
     public TimeSpan InProgressStaleAfter { get; set; } = TimeSpan.FromMinutes(15);
@@ -46,6 +53,9 @@ public sealed class OperationGuardAspNetCoreOptions
             MaximumKeyLength = MaximumKeyLength,
             FingerprintBodyLimitBytes = FingerprintBodyLimitBytes,
             ReplayBodyLimitBytes = ReplayBodyLimitBytes,
+            MaximumReplayHeaderCount = MaximumReplayHeaderCount,
+            MaximumReplayHeaderValueBytes = MaximumReplayHeaderValueBytes,
+            MaximumReplayHeadersTotalBytes = MaximumReplayHeadersTotalBytes,
             CompletedRetention = CompletedRetention,
             InProgressStaleAfter = InProgressStaleAfter,
         };
@@ -75,12 +85,7 @@ public sealed class OperationGuardAspNetCoreOptions
     }
 
     internal bool IsReplayHeaderAllowed(string name) =>
-        IsHttpToken(name)
-        && !ForbiddenReplayHeaders.Contains(name)
-        && ReplayHeaders.Contains(name, StringComparer.OrdinalIgnoreCase);
-
-    internal static bool HasSafeHeaderValues(IEnumerable<string?> values) =>
-        values.All(value => value is not null && value.IndexOfAny(['\r', '\n', '\0']) < 0);
+        ReplayPersistenceValidator.IsHeaderAllowed(name, ReplayHeaders);
 
     private static void ValidateHeaderName(string name, string parameterName)
     {

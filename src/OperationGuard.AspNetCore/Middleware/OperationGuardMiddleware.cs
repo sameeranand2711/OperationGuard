@@ -8,6 +8,7 @@ using OperationGuard.AspNetCore.Metadata;
 using OperationGuard.Core;
 using OperationGuard.Core.Abstractions;
 using OperationGuard.Core.Diagnostics;
+using OperationGuard.Core.Internal;
 using OperationGuard.Core.Models;
 
 namespace OperationGuard.AspNetCore;
@@ -194,25 +195,28 @@ public sealed class OperationGuardMiddleware
     private async Task ReplayAsync(HttpContext context, StoredOperation operation)
     {
         if (!operation.ReplayBodyAvailable
-            || operation.Response?.Body is not { } body
-            || body.Length > _coreOptions.ReplayBodyLimitBytes
-            || body.Length > OperationGuardOptions.HardReplayBodyLimitBytes
-            || operation.Response.StatusCode is < 100 or > 999)
+            || operation.Response?.Body is not { } body)
         {
             await WriteProblemAsync(context, 409, "replay-unavailable", "The operation completed, but its response body is unavailable for replay.").ConfigureAwait(false);
             return;
         }
 
-        context.Response.StatusCode = operation.Response.StatusCode;
-        foreach (var header in operation.Response.Headers ?? new Dictionary<string, string[]>())
+        try
         {
-            if (!_options.IsReplayHeaderAllowed(header.Key)
-                || header.Value is null
-                || !OperationGuardAspNetCoreOptions.HasSafeHeaderValues(header.Value))
-            {
-                continue;
-            }
+            ReplayPersistenceValidator.ValidateForReplay(operation.Response, _coreOptions);
+        }
+        catch (ArgumentException)
+        {
+            await WriteProblemAsync(context, 409, "replay-unavailable", "The operation completed, but its stored response is unsafe for replay.").ConfigureAwait(false);
+            return;
+        }
 
+        var replayHeaders = operation.Response.Headers
+            .Where(header => _options.IsReplayHeaderAllowed(header.Key))
+            .ToArray();
+        context.Response.StatusCode = operation.Response.StatusCode;
+        foreach (var header in replayHeaders)
+        {
             context.Response.Headers[header.Key] = new StringValues(header.Value);
         }
 

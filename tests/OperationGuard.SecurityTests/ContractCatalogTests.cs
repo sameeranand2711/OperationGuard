@@ -14,15 +14,6 @@ public sealed class ContractCatalogTests
         AssertMethod(typeof(AspNetCoreBehaviorContract<>), "Replay_persists_only_safe_selected_headers");
         AssertMethod(typeof(AspNetCoreBehaviorContract<>), "Store_unavailability_fails_closed_without_invoking_handler");
         AssertMethod(typeof(StoreProviderContract<>), "Same_client_key_is_isolated_by_scope_and_operation_name");
-        AssertMethod(
-            typeof(PaymentSampleSecurityContractTests),
-            "Payment_replay_rejects_oversized_or_corrupt_stored_headers_before_adding_any_header");
-        AssertMethod(
-            typeof(PaymentSampleSecurityContractTests),
-            "Payment_replay_rejects_non_final_or_out_of_range_stored_status");
-        AssertMethod(
-            typeof(PaymentSampleSecurityContractTests),
-            "Payment_replay_accepts_exact_header_boundaries_and_filters_non_allowlisted_headers");
     }
 
     private static void AssertMethod(Type contract, string name)

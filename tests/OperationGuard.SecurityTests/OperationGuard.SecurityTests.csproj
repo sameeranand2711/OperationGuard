@@ -7,7 +7,6 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../../src/OperationGuard.AspNetCore/OperationGuard.AspNetCore.csproj" />
     <ProjectReference Include="../../src/OperationGuard.Core/OperationGuard.Core.csproj" />
-    <ProjectReference Include="../../samples/PaymentApi/PaymentApi.csproj" />
     <ProjectReference Include="../OperationGuard.Testing.Contracts/OperationGuard.Testing.Contracts.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />

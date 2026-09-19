@@ -10,7 +10,7 @@ internal abstract class RelationalOperationStore : IOperationStore
 {
     private readonly Func<DbConnection> _connectionFactory;
     private readonly RelationalStoreSql _sql;
-    private readonly int _replayBodyLimitBytes;
+    private readonly OperationGuardOptions _replayOptions;
 
     protected RelationalOperationStore(
         Func<DbConnection> connectionFactory,
@@ -21,7 +21,7 @@ internal abstract class RelationalOperationStore : IOperationStore
         _sql = sql;
         options ??= new OperationGuardOptions();
         options.Validate();
-        _replayBodyLimitBytes = options.ReplayBodyLimitBytes;
+        _replayOptions = CopyReplayOptions(options);
     }
 
     protected abstract bool IsUniqueViolation(DbException exception);
@@ -56,6 +56,7 @@ internal abstract class RelationalOperationStore : IOperationStore
         DateTimeOffset retainUntil,
         CancellationToken cancellationToken = default)
     {
+        ReplayPersistenceValidator.ValidateForPersistence(response, _replayOptions);
         await using var connection = _connectionFactory();
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         return await CompleteAsync(
@@ -87,7 +88,7 @@ internal abstract class RelationalOperationStore : IOperationStore
         DateTimeOffset retainUntil,
         CancellationToken cancellationToken = default)
     {
-        ReplayPersistenceValidator.Validate(response, _replayBodyLimitBytes);
+        ReplayPersistenceValidator.ValidateForPersistence(response, _replayOptions);
         await using var connection = _connectionFactory();
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = CreateCommand(connection, null, _sql.ResolveIndeterminate);
@@ -313,7 +314,7 @@ internal abstract class RelationalOperationStore : IOperationStore
         DateTimeOffset retainUntil,
         CancellationToken cancellationToken)
     {
-        ReplayPersistenceValidator.Validate(response, _replayBodyLimitBytes);
+        ReplayPersistenceValidator.ValidateForPersistence(response, _replayOptions);
         await using var command = CreateCommand(connection, transaction, _sql.Complete);
         AddIdentity(command, identity);
         AddOwnerToken(command, ownerToken);
@@ -375,6 +376,14 @@ internal abstract class RelationalOperationStore : IOperationStore
         command.Transaction = transaction;
         return command;
     }
+
+    private static OperationGuardOptions CopyReplayOptions(OperationGuardOptions options) => new()
+    {
+        ReplayBodyLimitBytes = options.ReplayBodyLimitBytes,
+        MaximumReplayHeaderCount = options.MaximumReplayHeaderCount,
+        MaximumReplayHeaderValueBytes = options.MaximumReplayHeaderValueBytes,
+        MaximumReplayHeadersTotalBytes = options.MaximumReplayHeadersTotalBytes,
+    };
 
     private static void AddIdentity(DbCommand command, OperationIdentity identity)
     {
