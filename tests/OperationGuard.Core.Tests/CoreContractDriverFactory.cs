@@ -30,14 +30,16 @@ public sealed class CoreContractDriverFactory : ICoreContractDriverFactory
 
         public void ValidateOptions(ContractOptions options)
         {
-            new OperationGuardOptions
+            var coreOptions = new OperationGuardOptions
             {
                 MaximumKeyLength = options.MaximumKeyLength,
                 FingerprintBodyLimitBytes = options.FingerprintBodyLimitBytes,
                 ReplayBodyLimitBytes = options.ReplayBodyLimitBytes,
                 CompletedRetention = options.EffectiveCompletedRetention,
                 InProgressStaleAfter = options.EffectiveInProgressStaleAfter,
-            }.Validate();
+            };
+            ContractOptionsBinding.TryApplyReplayHeaderLimits(coreOptions, options);
+            coreOptions.Validate();
         }
 
         public ContractFingerprint Fingerprint(

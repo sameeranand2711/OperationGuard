@@ -27,6 +27,8 @@ public sealed class ContractCatalogTests
             "Default_key_length_accepts_255_and_rejects_256",
             "Hard_key_maximum_is_1024",
             "Replay_limit_default_and_hard_ceiling_are_enforced",
+            "Replay_header_limits_have_conservative_defaults_and_hard_ceilings",
+            "Replay_header_limits_are_positive_and_total_covers_one_maximum_value",
             "Fingerprint_body_limit_default_and_hard_ceiling_are_enforced",
             "Retention_and_stale_threshold_must_be_positive");
         AssertMethods(
@@ -48,6 +50,20 @@ public sealed class ContractCatalogTests
             "Completed_message_duplicate_is_acknowledged_without_reexecution",
             "Reused_message_id_with_different_content_never_executes",
             "Ambiguous_message_failure_is_indeterminate_and_not_automatically_retried");
+    }
+
+    [Fact]
+    public void Replay_header_contracts_cover_frozen_defaults_and_in_memory_persistence_boundaries()
+    {
+        AssertMethods(
+            typeof(ReplayHeaderOptionSurfaceTests),
+            "Core_replay_header_limits_have_frozen_conservative_defaults");
+        AssertMethods(
+            typeof(InMemoryReplayPersistenceTests),
+            "In_memory_store_accepts_exact_utf8_and_serialized_header_boundaries",
+            "In_memory_store_accepts_safe_final_status_code_boundaries",
+            "In_memory_direct_completion_rejects_before_changing_state",
+            "In_memory_indeterminate_resolution_rejects_before_changing_state");
     }
 
     private static void AssertMethods(Type contract, params string[] names)

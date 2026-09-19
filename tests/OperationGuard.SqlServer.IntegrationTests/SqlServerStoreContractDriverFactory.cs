@@ -66,6 +66,7 @@ public sealed class SqlServerStoreContractDriverFactory : IStoreContractDriverFa
             CompletedRetention = options.EffectiveCompletedRetention,
             InProgressStaleAfter = options.EffectiveInProgressStaleAfter,
         };
+        ContractOptionsBinding.TryApplyReplayHeaderLimits(coreOptions, options);
         var configured = typeof(SqlServerOperationStore).GetConstructor(
             [typeof(Func<DbConnection>), typeof(OperationGuardOptions)]);
         return configured is null

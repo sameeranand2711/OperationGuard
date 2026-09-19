@@ -65,6 +65,7 @@ public sealed class PostgreSqlStoreContractDriverFactory : IStoreContractDriverF
             CompletedRetention = options.EffectiveCompletedRetention,
             InProgressStaleAfter = options.EffectiveInProgressStaleAfter,
         };
+        ContractOptionsBinding.TryApplyReplayHeaderLimits(coreOptions, options);
         var configured = typeof(PostgreSqlOperationStore).GetConstructor(
             [typeof(Func<DbConnection>), typeof(OperationGuardOptions)]);
         return configured is null

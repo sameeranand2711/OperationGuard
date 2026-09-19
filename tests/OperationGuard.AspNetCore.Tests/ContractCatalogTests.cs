@@ -45,7 +45,25 @@ public sealed class ContractCatalogTests
         Assert.Contains(
             "Response_started_before_guard_never_allows_a_missing_key_request_to_reach_the_handler",
             hostedMethods);
-        Assert.Contains("Duplicate_replay_defensively_filters_hostile_persisted_headers", replayMethods);
+        Assert.Contains(
+            "Hostile_store_replay_rejects_all_oversized_or_corrupt_headers_before_adding_any_header",
+            replayMethods);
+        Assert.Contains(
+            "Hostile_store_replay_rejects_non_final_or_out_of_range_status_before_adding_headers",
+            replayMethods);
+        Assert.Contains(
+            "Hostile_store_replay_accepts_exact_utf8_and_serialized_header_boundaries",
+            replayMethods);
         Assert.Contains("Duplicate_replay_refuses_hostile_persisted_body_above_configured_limit", replayMethods);
+
+        var optionMethods = typeof(UnsafeReplayHeaderConfigurationTests).GetMethods()
+            .Select(method => method.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("Replay_header_limits_have_frozen_defaults_in_http_and_core_options", optionMethods);
+        Assert.Contains("Replay_header_limits_are_copied_to_core_options", optionMethods);
+        Assert.Contains("Replay_header_limit_relationship_is_validated_during_registration", optionMethods);
+        Assert.Contains(
+            "Replay_header_limits_reject_non_positive_and_above_hard_ceiling_values",
+            optionMethods);
     }
 }

@@ -103,6 +103,41 @@ public abstract class CoreIdentityAndConfigurationContract<TFactory>
     }
 
     [Fact]
+    public void Replay_header_limits_have_conservative_defaults_and_hard_ceilings()
+    {
+        _driver.ValidateOptions(new ContractOptions(
+            MaximumReplayHeaderCount: 32,
+            MaximumReplayHeaderValueBytes: 8 * 1024,
+            MaximumReplayHeadersTotalBytes: 32 * 1024));
+        _driver.ValidateOptions(new ContractOptions(
+            MaximumReplayHeaderCount: 128,
+            MaximumReplayHeaderValueBytes: 64 * 1024,
+            MaximumReplayHeadersTotalBytes: 256 * 1024));
+
+        Assert.ThrowsAny<ArgumentException>(() => _driver.ValidateOptions(new ContractOptions(
+            MaximumReplayHeaderCount: 129)));
+        Assert.ThrowsAny<ArgumentException>(() => _driver.ValidateOptions(new ContractOptions(
+            MaximumReplayHeaderValueBytes: 64 * 1024 + 1,
+            MaximumReplayHeadersTotalBytes: 256 * 1024)));
+        Assert.ThrowsAny<ArgumentException>(() => _driver.ValidateOptions(new ContractOptions(
+            MaximumReplayHeadersTotalBytes: 256 * 1024 + 1)));
+    }
+
+    [Fact]
+    public void Replay_header_limits_are_positive_and_total_covers_one_maximum_value()
+    {
+        Assert.ThrowsAny<ArgumentException>(() => _driver.ValidateOptions(new ContractOptions(
+            MaximumReplayHeaderCount: 0)));
+        Assert.ThrowsAny<ArgumentException>(() => _driver.ValidateOptions(new ContractOptions(
+            MaximumReplayHeaderValueBytes: 0)));
+        Assert.ThrowsAny<ArgumentException>(() => _driver.ValidateOptions(new ContractOptions(
+            MaximumReplayHeadersTotalBytes: 0)));
+        Assert.ThrowsAny<ArgumentException>(() => _driver.ValidateOptions(new ContractOptions(
+            MaximumReplayHeaderValueBytes: 1024,
+            MaximumReplayHeadersTotalBytes: 1023)));
+    }
+
+    [Fact]
     public void Fingerprint_body_limit_default_and_hard_ceiling_are_enforced()
     {
         _driver.ValidateOptions(new ContractOptions(FingerprintBodyLimitBytes: 1024 * 1024));
