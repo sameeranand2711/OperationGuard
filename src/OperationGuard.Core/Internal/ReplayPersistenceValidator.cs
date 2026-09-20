@@ -93,7 +93,7 @@ internal static class ReplayPersistenceValidator
 
             foreach (var value in header.Value)
             {
-                if (value is null || value.IndexOfAny(['\r', '\n', '\0']) >= 0)
+                if (value is null || value.Any(IsInvalidHeaderValueCharacter))
                 {
                     throw new ArgumentException("Replay response header values contain invalid characters.", nameof(response));
                 }
@@ -115,6 +115,9 @@ internal static class ReplayPersistenceValidator
                 nameof(response));
         }
     }
+
+    private static bool IsInvalidHeaderValueCharacter(char value) =>
+        value is < ' ' and not '\t' or '\u007f';
 
     private static bool IsHttpToken(string value) =>
         !string.IsNullOrEmpty(value) && value.All(IsTokenCharacter);

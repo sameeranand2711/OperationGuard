@@ -78,9 +78,16 @@ public sealed class OperationGuardAspNetCoreOptions
     private static void ValidateHeaderNames(IReadOnlyCollection<string> names, string parameterName)
     {
         ArgumentNullException.ThrowIfNull(names, parameterName);
+        var uniqueNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var name in names)
         {
             ValidateHeaderName(name, parameterName);
+            if (!uniqueNames.Add(name))
+            {
+                throw new ArgumentException(
+                    "Header names must not contain case-insensitive duplicates.",
+                    parameterName);
+            }
         }
     }
 

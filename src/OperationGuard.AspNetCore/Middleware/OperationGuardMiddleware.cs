@@ -164,12 +164,12 @@ public sealed class OperationGuardMiddleware
         }
 
         context.Response.Body = originalBody;
-        var response = new ReplayResponse(
-            context.Response.StatusCode,
-            SelectResponseHeaders(context.Response.Headers),
-            capture.CapturedBody);
         try
         {
+            var response = new ReplayResponse(
+                context.Response.StatusCode,
+                SelectResponseHeaders(context.Response.Headers),
+                capture.CapturedBody);
             var result = await store.CompleteAsync(
                 identity,
                 ownerToken,
