@@ -68,6 +68,17 @@ public sealed class DefensiveReplayTests
     }
 
     [Fact]
+    public async Task Hostile_store_replay_accepts_horizontal_tab_in_header_values()
+    {
+        var response = await ReplayAsync(
+            Response(200, new Dictionary<string, string[]> { ["ETag"] = ["one\ttwo"] }),
+            new ContractOptions());
+
+        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+        Assert.Equal("one\ttwo", Assert.Single(response.Headers["ETag"]));
+    }
+
+    [Fact]
     public async Task Duplicate_replay_refuses_hostile_persisted_body_above_configured_limit()
     {
         var response = await ReplayAsync(
@@ -123,6 +134,18 @@ public sealed class DefensiveReplayTests
                 ["ETag"] = ["safe-first"],
                 ["Location"] = ["/ok\r\nX-Injected: secret"],
             }));
+        foreach (var invalidControl in InvalidHeaderValueControls())
+        {
+            yield return new InvalidHeaderCase(
+                $"control-u{(int)invalidControl:x4}",
+                new ContractOptions(),
+                Response(200, new Dictionary<string, string[]>
+                {
+                    ["ETag"] = ["safe-first"],
+                    ["Location"] = [$"/ok{invalidControl}unsafe"],
+                }));
+        }
+
         yield return new InvalidHeaderCase(
             "null-array",
             new ContractOptions(),
@@ -132,6 +155,11 @@ public sealed class DefensiveReplayTests
                 ["Location"] = null!,
             }));
     }
+
+    private static IEnumerable<char> InvalidHeaderValueControls() =>
+        new[] { '\u007f' }.Concat(Enumerable.Range(0, 32)
+            .Select(static value => (char)value)
+            .Where(static value => value != '\t'));
 
     private static async Task<ReplayResult> ReplayAsync(
         ReplayResponse persistedResponse,

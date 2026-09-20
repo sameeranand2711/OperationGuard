@@ -147,6 +147,30 @@ public abstract class ReplayPersistenceContract<TFactory>
     }
 
     [ProviderFact]
+    public async Task Direct_completion_accepts_horizontal_tab_in_replay_header_values()
+    {
+        await using var driver = await CreateResetDriverAsync();
+        var identity = Identity with { IdempotencyKey = "horizontal-tab" };
+        var begin = await BeginAsync(driver, identity);
+        var response = Response(
+            200,
+            new Dictionary<string, string[]> { ["X-Value"] = ["one\ttwo"] });
+
+        var result = await driver.CompleteAsync(
+            identity,
+            begin.OwnerToken!,
+            response,
+            true,
+            "digest",
+            Now.AddHours(24),
+            TestContext.Current.CancellationToken);
+        var stored = await driver.ReadOutcomeAsync(identity, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ContractConditionalWriteKind.Applied, result);
+        Assert.Equal("one\ttwo", Assert.Single(stored?.Response?.Headers["X-Value"]!));
+    }
+
+    [ProviderFact]
     public async Task Direct_completion_enforces_configured_replay_body_limit()
     {
         await using var driver = await CreateResetDriverAsync(new ContractOptions(ReplayBodyLimitBytes: 32));
@@ -221,6 +245,14 @@ public abstract class ReplayPersistenceContract<TFactory>
             "newline-value",
             new ContractOptions(),
             Response(200, new Dictionary<string, string[]> { ["Location"] = ["/ok\r\nX-Injected: secret"] }));
+        foreach (var invalidControl in InvalidHeaderValueControls())
+        {
+            yield return new InvalidReplayCase(
+                $"control-u{(int)invalidControl:x4}",
+                new ContractOptions(),
+                Response(200, new Dictionary<string, string[]> { ["X-Value"] = [$"one{invalidControl}two"] }));
+        }
+
         yield return new InvalidReplayCase(
             "null-value-array",
             new ContractOptions(),
@@ -235,6 +267,11 @@ public abstract class ReplayPersistenceContract<TFactory>
             new ContractOptions(),
             Response(600, new Dictionary<string, string[]>()));
     }
+
+    private static IEnumerable<char> InvalidHeaderValueControls() =>
+        new[] { '\u007f' }.Concat(Enumerable.Range(0, 32)
+            .Select(static value => (char)value)
+            .Where(static value => value != '\t'));
 
     private static ContractReplayResponse ExactBoundaryResponse() => Response(
         200,

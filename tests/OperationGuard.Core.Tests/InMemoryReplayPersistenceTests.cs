@@ -66,6 +66,26 @@ public sealed class InMemoryReplayPersistenceTests
     }
 
     [Fact]
+    public async Task In_memory_store_accepts_horizontal_tab_in_replay_header_values()
+    {
+        var store = CreateStore(new ContractOptions());
+        var identity = Identity("horizontal-tab");
+        var begin = await BeginAsync(store, identity);
+
+        var result = await store.CompleteAsync(
+            identity,
+            begin.OwnerToken!,
+            Response(200, new Dictionary<string, string[]> { ["X-Value"] = ["one\ttwo"] }),
+            true,
+            "digest",
+            Now.AddHours(24));
+        var stored = await store.ReadOutcomeAsync(identity);
+
+        Assert.Equal(ConditionalWriteKind.Applied, result);
+        Assert.Equal("one\ttwo", Assert.Single(stored?.Response?.Headers["X-Value"]!));
+    }
+
+    [Fact]
     public async Task In_memory_direct_completion_rejects_before_changing_state()
     {
         foreach (var invalidCase in InvalidCases())
@@ -159,6 +179,14 @@ public sealed class InMemoryReplayPersistenceTests
             "newline-value",
             new ContractOptions(),
             Response(200, new Dictionary<string, string[]> { ["Location"] = ["/ok\r\nX-Injected: secret"] }));
+        foreach (var invalidControl in InvalidHeaderValueControls())
+        {
+            yield return new InvalidCase(
+                $"control-u{(int)invalidControl:x4}",
+                new ContractOptions(),
+                Response(200, new Dictionary<string, string[]> { ["X-Value"] = [$"one{invalidControl}two"] }));
+        }
+
         yield return new InvalidCase(
             "null-value-array",
             new ContractOptions(),
@@ -166,6 +194,11 @@ public sealed class InMemoryReplayPersistenceTests
         yield return new InvalidCase("status-low", new ContractOptions(), Response(199, new Dictionary<string, string[]>()));
         yield return new InvalidCase("status-high", new ContractOptions(), Response(600, new Dictionary<string, string[]>()));
     }
+
+    private static IEnumerable<char> InvalidHeaderValueControls() =>
+        new[] { '\u007f' }.Concat(Enumerable.Range(0, 32)
+            .Select(static value => (char)value)
+            .Where(static value => value != '\t'));
 
     private static InMemoryOperationStore CreateStore(ContractOptions options)
     {

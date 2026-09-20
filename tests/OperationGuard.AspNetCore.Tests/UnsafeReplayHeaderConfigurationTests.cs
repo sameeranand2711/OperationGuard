@@ -1,6 +1,13 @@
+using System.Text;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using OperationGuard.AspNetCore.Metadata;
 using OperationGuard.AspNetCore.Registration;
 using OperationGuard.Core;
+using OperationGuard.Core.Fingerprinting;
+using OperationGuard.Core.Models;
+using OperationGuard.Core.Testing;
 using OperationGuard.Testing.Contracts.Drivers;
 using OperationGuard.Testing.Contracts.Models;
 using Xunit;
@@ -56,6 +63,57 @@ public sealed class UnsafeReplayHeaderConfigurationTests
             options.FingerprintHeaders = [headerName]));
         Assert.Throws<ArgumentException>(() => new ServiceCollection().AddOperationGuard(options =>
             options.ReplayHeaders = [headerName]));
+    }
+
+    [Fact]
+    public void Header_configuration_rejects_case_insensitive_duplicates()
+    {
+        Assert.Throws<ArgumentException>(() => new ServiceCollection().AddOperationGuard(options =>
+            options.FingerprintHeaders = ["X-Business-Version", "x-business-version"]));
+        Assert.Throws<ArgumentException>(() => new ServiceCollection().AddOperationGuard(options =>
+            options.ReplayHeaders = ["ETag", "etag"]));
+    }
+
+    [Fact]
+    public async Task Replay_response_construction_failure_after_handler_marks_operation_indeterminate()
+    {
+        var identity = new OperationIdentity("tenant", "Payments.Create", "construction-failure");
+        var options = new OperationGuardAspNetCoreOptions
+        {
+            ReplayHeaders = ["ETag", "etag"],
+            ScopeResolver = static (_, _) => ValueTask.FromResult("tenant"),
+        };
+        var coreOptions = new OperationGuardOptions();
+        var store = new InMemoryOperationStore(coreOptions);
+        var context = new DefaultHttpContext();
+        context.Request.Method = HttpMethods.Post;
+        context.Request.ContentType = "application/json";
+        context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes("{}"));
+        context.Request.ContentLength = context.Request.Body.Length;
+        context.Request.Headers["Idempotency-Key"] = identity.IdempotencyKey;
+        context.Response.Body = new MemoryStream();
+        context.SetEndpoint(new Endpoint(
+            null,
+            new EndpointMetadataCollection(new OperationGuardEndpointMetadata(identity.OperationName)),
+            identity.OperationName));
+        var middleware = new OperationGuardMiddleware(
+            httpContext =>
+            {
+                httpContext.Response.Headers.ETag = "safe";
+                return Task.CompletedTask;
+            },
+            options,
+            coreOptions,
+            TimeProvider.System,
+            NullLogger<OperationGuardMiddleware>.Instance);
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => middleware.InvokeAsync(
+            context,
+            store,
+            new Sha256RequestFingerprintProvider()));
+
+        var stored = await store.ReadOutcomeAsync(identity);
+        Assert.Equal(OperationState.Indeterminate, stored?.State);
     }
 
     [Fact]
