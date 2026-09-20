@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <PackageId>OperationGuard.Core</PackageId>
     <Description>Durable operation identity, state, and coordination contracts.</Description>
   </PropertyGroup>
   <ItemGroup>
