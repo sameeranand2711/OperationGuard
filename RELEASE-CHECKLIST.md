@@ -17,7 +17,7 @@ This checklist prepares V1 for human review. It does not authorize publication, 
 - [x] `PaymentApi` and `MessageConsumer` build from a clean restore and pass concise runtime smoke checks.
 - [x] Formatting verification passes.
 - [x] NuGet dependency vulnerability audit and available static analysis have no unresolved Critical/High finding.
-- [ ] Agent 04 audits the final README claims and examples after release documentation changes.
+- [x] Agent 04 audits the final README claims and examples after release documentation changes.
 
 ## Package validation
 
