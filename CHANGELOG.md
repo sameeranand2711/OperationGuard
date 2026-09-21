@@ -22,5 +22,4 @@ All notable changes to OperationGuard are documented here.
 
 ### Known release blockers
 
-- A repository license and matching NuGet package metadata must be selected by the repository owner before publication.
 - Package ownership must be confirmed and package IDs rechecked immediately before publication.

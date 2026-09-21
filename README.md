@@ -7,7 +7,7 @@ OperationGuard is a .NET library for coordinating durable, idempotent HTTP and m
 - V1 release candidate: `1.0.0` has not been published.
 - Supported target frameworks: .NET 8 (`net8.0`) and .NET 10 (`net10.0`).
 - SQL Server and PostgreSQL are the V1 production stores. The in-memory store is only for tests and local development.
-- Publication is blocked until the repository owner selects and adds a license.
+- Licensed under MIT. Package publication still requires human approval and NuGet ownership confirmation.
 
 ## What This Library Does
 
@@ -313,4 +313,4 @@ SQL Server and PostgreSQL integration suites require their documented test envir
 
 ## License
 
-No license has been selected or granted in this repository. Package publication is blocked until the repository owner adds a license file and matching NuGet package metadata. Do not assume permission to redistribute this code merely because the source is visible.
+OperationGuard is licensed under the [MIT License](LICENSE). Copyright (c) 2026 Sameer Anand. The NuGet packages declare the matching `MIT` license expression.

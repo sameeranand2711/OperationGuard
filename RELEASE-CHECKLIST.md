@@ -32,8 +32,8 @@ This checklist prepares V1 for human review. It does not authorize publication, 
 
 ## Legal and publication
 
-- [ ] Repository owner selects a license and adds the license file.
-- [ ] NuGet package license metadata matches the selected repository license.
+- [x] Repository owner selects the MIT license and adds the license file.
+- [x] NuGet package license metadata matches the selected repository license.
 - [ ] Repository URL/project URL are added after the canonical public repository is known.
 - [ ] NuGet credentials/owner account and package ownership are confirmed by the human publisher.
 - [ ] Final semantic-version tag is created only after human approval.
