@@ -13,6 +13,8 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>idempotency;retries;distributed-systems;dotnet</PackageTags>
+    <PackageProjectUrl>https://github.com/sameeranand2711/OperationGuard</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/sameeranand2711/OperationGuard</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
