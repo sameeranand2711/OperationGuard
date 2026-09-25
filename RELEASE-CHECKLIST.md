@@ -21,7 +21,7 @@ This checklist prepares V1 for human review. It does not authorize publication, 
 
 ## Package validation
 
-- [x] Version is `1.0.0` and all four package IDs are explicit.
+- [x] Version is `1.0.0-rc.1` and all four package IDs are explicit.
 - [ ] Package ID availability is checked again immediately before publication and ownership is confirmed.
 - [x] `OperationGuard.Core`, `OperationGuard.AspNetCore`, `OperationGuard.SqlServer`, and `OperationGuard.PostgreSql` pack successfully.
 - [x] Each package contains `net8.0` and `net10.0` assets, the README, and expected metadata only.

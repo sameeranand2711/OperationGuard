@@ -4,7 +4,7 @@ OperationGuard is a .NET library for coordinating durable, idempotent HTTP and m
 
 ## Status
 
-- V1 release candidate: `1.0.0` has not been published.
+- V1 release candidate: `1.0.0-rc.1` has not been published.
 - Supported target frameworks: .NET 8 (`net8.0`) and .NET 10 (`net10.0`).
 - SQL Server and PostgreSQL are the V1 production stores. The in-memory store is only for tests and local development.
 - Licensed under MIT. Package publication still requires human approval and NuGet ownership confirmation.
@@ -33,16 +33,16 @@ OperationGuard is a .NET library for coordinating durable, idempotent HTTP and m
 Install the integration package, one production provider, and that database's ADO.NET driver:
 
 ```shell
-dotnet add package OperationGuard.AspNetCore --version 1.0.0
-dotnet add package OperationGuard.PostgreSql --version 1.0.0
+dotnet add package OperationGuard.AspNetCore --version 1.0.0-rc.1
+dotnet add package OperationGuard.PostgreSql --version 1.0.0-rc.1
 dotnet add package Npgsql
 ```
 
 or:
 
 ```shell
-dotnet add package OperationGuard.AspNetCore --version 1.0.0
-dotnet add package OperationGuard.SqlServer --version 1.0.0
+dotnet add package OperationGuard.AspNetCore --version 1.0.0-rc.1
+dotnet add package OperationGuard.SqlServer --version 1.0.0-rc.1
 dotnet add package Microsoft.Data.SqlClient
 ```
 
