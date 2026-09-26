@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using OperationGuard.Testing.Contracts.Drivers;
 using OperationGuard.Testing.Contracts.Models;
@@ -359,6 +360,73 @@ public abstract class StoreProviderContract<TFactory>
 
         Assert.Equal(ContractOperationState.Completed, (await driver.ReadOutcomeAsync(Identity, TestContext.Current.CancellationToken))?.State);
         Assert.Equal(1, await driver.CountBusinessMutationsAsync("payment-commit", TestContext.Current.CancellationToken));
+    }
+
+    [ProviderFact]
+    public async Task Transaction_session_active_duplicate_returns_without_waiting_for_owner_commit()
+    {
+        await using var driver = await CreateResetDriverAsync();
+        var maximumDuplicateWait = TimeSpan.FromSeconds(3);
+        ContractBeginResult? duplicate = null;
+        TimeSpan duplicateElapsed = default;
+
+        await driver.ExecuteTransactionAsync(async (session, cancellationToken) =>
+        {
+            var first = await session.TryBeginAsync(Identity, Fingerprint, Now, Lease, cancellationToken);
+            Assert.Equal(ContractBeginKind.Acquired, first.Kind);
+
+            using var duplicateDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            duplicateDeadline.CancelAfter(maximumDuplicateWait);
+            var stopwatch = Stopwatch.StartNew();
+            try
+            {
+                duplicate = await driver.TryBeginAsync(
+                    Identity,
+                    Fingerprint,
+                    Now,
+                    Lease,
+                    duplicateDeadline.Token);
+            }
+            catch (Exception exception) when (
+                duplicateDeadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                stopwatch.Stop();
+                throw new TimeoutException(
+                    $"The active duplicate waited {stopwatch.Elapsed.TotalMilliseconds:F0} ms for the owner transaction instead of returning immediately.",
+                    exception);
+            }
+
+            stopwatch.Stop();
+            duplicateElapsed = stopwatch.Elapsed;
+            Assert.False(
+                duplicateDeadline.IsCancellationRequested,
+                $"The active duplicate exceeded the {maximumDuplicateWait.TotalMilliseconds:F0} ms response bound (elapsed {duplicateElapsed.TotalMilliseconds:F0} ms).");
+            Assert.Equal(ContractBeginKind.AlreadyInProgress, duplicate.Kind);
+
+            var completed = await session.CompleteAsync(
+                Identity,
+                first.OwnerToken!,
+                Replay("committed"),
+                true,
+                "committed-digest",
+                Now + Retention,
+                cancellationToken);
+            Assert.Equal(ContractConditionalWriteKind.Applied, completed);
+        }, commit: true, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(duplicate);
+        Assert.True(
+            duplicateElapsed < maximumDuplicateWait,
+            $"The active duplicate took {duplicateElapsed.TotalMilliseconds:F0} ms to return.");
+
+        var afterCommit = await driver.TryBeginAsync(
+            Identity,
+            Fingerprint,
+            Now.AddMinutes(1),
+            Lease,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(ContractBeginKind.Completed, afterCommit.Kind);
+        Assert.Equal(ContractOperationState.Completed, afterCommit.Operation?.State);
     }
 
     private static ContractReplayResponse Replay(string body) => new(
