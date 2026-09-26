@@ -167,6 +167,28 @@ public sealed class PostgreSqlOperationStore : IOperationStore
                 "23505",
                 StringComparison.Ordinal);
 
+        protected override ValueTask AcquireReservationElectionAsync(
+            DbConnection connection,
+            DbTransaction? transaction,
+            OperationIdentity identity,
+            CancellationToken cancellationToken) =>
+            AcquireSessionAsync(
+                connection,
+                transaction,
+                ReservationLockKey.ComputeElectionResource(identity),
+                cancellationToken);
+
+        protected override ValueTask ReleaseReservationElectionAsync(
+            DbConnection connection,
+            DbTransaction? transaction,
+            OperationIdentity identity,
+            CancellationToken cancellationToken) =>
+            ReleaseSessionAsync(
+                connection,
+                transaction,
+                ReservationLockKey.ComputeElectionResource(identity),
+                cancellationToken);
+
         protected override async ValueTask<OperationBeginKind?> TryAcquireReservationLockAsync(
             DbConnection connection,
             DbTransaction transaction,
@@ -174,8 +196,11 @@ public sealed class PostgreSqlOperationStore : IOperationStore
             OperationFingerprint fingerprint,
             CancellationToken cancellationToken)
         {
-            var electionResource = ReservationLockKey.ComputeElectionResource(identity);
-            await AcquireSessionAsync(connection, transaction, electionResource, cancellationToken).ConfigureAwait(false);
+            await AcquireReservationElectionAsync(
+                connection,
+                transaction,
+                identity,
+                cancellationToken).ConfigureAwait(false);
             try
             {
                 var fingerprintResource = ReservationLockKey.ComputeFingerprintResource(identity, fingerprint);
@@ -224,10 +249,10 @@ public sealed class PostgreSqlOperationStore : IOperationStore
             }
             finally
             {
-                await ReleaseSessionAsync(
+                await ReleaseReservationElectionAsync(
                     connection,
                     transaction,
-                    electionResource,
+                    identity,
                     CancellationToken.None).ConfigureAwait(false);
             }
         }
@@ -252,7 +277,7 @@ public sealed class PostgreSqlOperationStore : IOperationStore
 
         private static async ValueTask AcquireSessionAsync(
             DbConnection connection,
-            DbTransaction transaction,
+            DbTransaction? transaction,
             string resource,
             CancellationToken cancellationToken)
         {
@@ -281,7 +306,7 @@ public sealed class PostgreSqlOperationStore : IOperationStore
 
         private static async ValueTask ReleaseSessionAsync(
             DbConnection connection,
-            DbTransaction transaction,
+            DbTransaction? transaction,
             string resource,
             CancellationToken cancellationToken)
         {
@@ -300,7 +325,7 @@ public sealed class PostgreSqlOperationStore : IOperationStore
 
         private static DbCommand CreateLockCommand(
             DbConnection connection,
-            DbTransaction transaction,
+            DbTransaction? transaction,
             string commandText,
             string resource)
         {

@@ -26,6 +26,18 @@ internal abstract class RelationalOperationStore : IOperationStore
 
     protected abstract bool IsUniqueViolation(DbException exception);
 
+    protected abstract ValueTask AcquireReservationElectionAsync(
+        DbConnection connection,
+        DbTransaction? transaction,
+        OperationIdentity identity,
+        CancellationToken cancellationToken);
+
+    protected abstract ValueTask ReleaseReservationElectionAsync(
+        DbConnection connection,
+        DbTransaction? transaction,
+        OperationIdentity identity,
+        CancellationToken cancellationToken);
+
     protected abstract ValueTask<OperationBeginKind?> TryAcquireReservationLockAsync(
         DbConnection connection,
         DbTransaction transaction,
@@ -42,17 +54,39 @@ internal abstract class RelationalOperationStore : IOperationStore
     {
         await using var connection = _connectionFactory();
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var result = await TryBeginAsync(
-            connection,
-            transaction,
-            identity,
-            fingerprint,
-            now,
-            leaseDuration,
-            cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return result;
+        var electionAcquired = false;
+        try
+        {
+            await AcquireReservationElectionAsync(
+                connection,
+                null,
+                identity,
+                cancellationToken).ConfigureAwait(false);
+            electionAcquired = true;
+
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            var result = await TryBeginAsync(
+                connection,
+                transaction,
+                identity,
+                fingerprint,
+                now,
+                leaseDuration,
+                cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return result;
+        }
+        finally
+        {
+            if (electionAcquired)
+            {
+                await ReleaseReservationElectionAsync(
+                    connection,
+                    null,
+                    identity,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+        }
     }
 
     public async ValueTask<StoredOperation?> ReadOutcomeAsync(

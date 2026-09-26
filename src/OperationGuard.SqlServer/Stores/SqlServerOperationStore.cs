@@ -180,6 +180,36 @@ public sealed class SqlServerOperationStore : IOperationStore
             return number is 2601 or 2627;
         }
 
+        protected override async ValueTask AcquireReservationElectionAsync(
+            DbConnection connection,
+            DbTransaction? transaction,
+            OperationIdentity identity,
+            CancellationToken cancellationToken)
+        {
+            var acquired = await TryAcquireAsync(
+                connection,
+                transaction,
+                ReservationLockKey.ComputeElectionResource(identity),
+                "Session",
+                -1,
+                cancellationToken).ConfigureAwait(false);
+            if (!acquired)
+            {
+                throw new InvalidOperationException("SQL Server did not acquire the reservation election lock.");
+            }
+        }
+
+        protected override ValueTask ReleaseReservationElectionAsync(
+            DbConnection connection,
+            DbTransaction? transaction,
+            OperationIdentity identity,
+            CancellationToken cancellationToken) =>
+            ReleaseSessionAsync(
+                connection,
+                transaction,
+                ReservationLockKey.ComputeElectionResource(identity),
+                cancellationToken);
+
         protected override async ValueTask<OperationBeginKind?> TryAcquireReservationLockAsync(
             DbConnection connection,
             DbTransaction transaction,
@@ -187,18 +217,11 @@ public sealed class SqlServerOperationStore : IOperationStore
             OperationFingerprint fingerprint,
             CancellationToken cancellationToken)
         {
-            var electionResource = ReservationLockKey.ComputeElectionResource(identity);
-            var electionAcquired = await TryAcquireAsync(
+            await AcquireReservationElectionAsync(
                 connection,
                 transaction,
-                electionResource,
-                "Session",
-                -1,
+                identity,
                 cancellationToken).ConfigureAwait(false);
-            if (!electionAcquired)
-            {
-                throw new InvalidOperationException("SQL Server did not acquire the reservation election lock.");
-            }
 
             try
             {
@@ -254,17 +277,17 @@ public sealed class SqlServerOperationStore : IOperationStore
             }
             finally
             {
-                await ReleaseSessionAsync(
+                await ReleaseReservationElectionAsync(
                     connection,
                     transaction,
-                    electionResource,
+                    identity,
                     CancellationToken.None).ConfigureAwait(false);
             }
         }
 
         private static async ValueTask<bool> TryAcquireAsync(
             DbConnection connection,
-            DbTransaction transaction,
+            DbTransaction? transaction,
             string resourceValue,
             string lockOwner,
             int lockTimeout,
@@ -315,7 +338,7 @@ public sealed class SqlServerOperationStore : IOperationStore
 
         private static async ValueTask ReleaseSessionAsync(
             DbConnection connection,
-            DbTransaction transaction,
+            DbTransaction? transaction,
             string resourceValue,
             CancellationToken cancellationToken)
         {
