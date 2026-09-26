@@ -36,6 +36,26 @@ public abstract class FingerprintingContract<TFactory>
     }
 
     [Fact]
+    public void Selected_header_names_and_value_lists_have_unambiguous_framing()
+    {
+        var valueThatLooksLikeTheNextHeaderName = Create(
+            body: "{}",
+            headers: new Dictionary<string, string[]>
+            {
+                ["X-A"] = ["x", "X-B", "y"],
+            });
+        var separatelyFramedHeader = Create(
+            body: "{}",
+            headers: new Dictionary<string, string[]>
+            {
+                ["X-A"] = ["x"],
+                ["X-B"] = ["y"],
+            });
+
+        Assert.NotEqual(valueThatLooksLikeTheNextHeaderName, separatelyFramedHeader);
+    }
+
+    [Fact]
     public void Query_parameter_order_is_canonicalized()
     {
         var first = Create(body: "{}", query: "?b=2&a=1");

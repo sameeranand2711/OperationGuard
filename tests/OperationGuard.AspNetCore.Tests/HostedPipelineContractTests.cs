@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using OperationGuard.AspNetCore.Extensions;
@@ -226,23 +225,5 @@ public sealed class HostedPipelineContractTests
             await host.StopAsync();
             host.Dispose();
         }
-    }
-}
-
-[ApiController]
-[Route("hosted-mvc")]
-public sealed class HostedGuardController(HostedPipelineContractTests.InvocationCounter invocations) : ControllerBase
-{
-    [HttpPost]
-    [OperationGuard("Hosted.Mvc")]
-    public IActionResult Post()
-    {
-        invocations.Value++;
-        return new ContentResult
-        {
-            Content = "accepted",
-            ContentType = "text/plain; charset=utf-8",
-            StatusCode = StatusCodes.Status202Accepted,
-        };
     }
 }

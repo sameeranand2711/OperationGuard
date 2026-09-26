@@ -23,10 +23,3 @@ public interface ICoreContractDriver
         IContractFingerprintProvider provider,
         CancellationToken cancellationToken);
 }
-
-public interface IContractFingerprintProvider
-{
-    ValueTask<ContractFingerprint> CreateAsync(
-        ContractHttpRequest request,
-        CancellationToken cancellationToken);
-}
