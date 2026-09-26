@@ -158,5 +158,23 @@ public sealed class PostgreSqlOperationStore : IOperationStore
                 exception.GetType().GetProperty("SqlState")?.GetValue(exception) as string,
                 "23505",
                 StringComparison.Ordinal);
+
+        protected override async ValueTask<bool> TryAcquireReservationLockAsync(
+            DbConnection connection,
+            DbTransaction transaction,
+            OperationIdentity identity,
+            CancellationToken cancellationToken)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "SELECT pg_try_advisory_xact_lock(@lockKey)";
+            var lockKey = command.CreateParameter();
+            lockKey.ParameterName = "@lockKey";
+            lockKey.DbType = System.Data.DbType.Int64;
+            lockKey.Value = ReservationLockKey.ComputeInt64(identity);
+            command.Parameters.Add(lockKey);
+            return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("PostgreSQL returned no advisory-lock result."));
+        }
     }
 }

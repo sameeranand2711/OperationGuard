@@ -26,6 +26,12 @@ internal abstract class RelationalOperationStore : IOperationStore
 
     protected abstract bool IsUniqueViolation(DbException exception);
 
+    protected abstract ValueTask<bool> TryAcquireReservationLockAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        OperationIdentity identity,
+        CancellationToken cancellationToken);
+
     public async ValueTask<OperationBeginResult> TryBeginAsync(
         OperationIdentity identity,
         OperationFingerprint fingerprint,
@@ -35,7 +41,17 @@ internal abstract class RelationalOperationStore : IOperationStore
     {
         await using var connection = _connectionFactory();
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        return await TryBeginAsync(connection, null, identity, fingerprint, now, leaseDuration, cancellationToken).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var result = await TryBeginAsync(
+            connection,
+            transaction,
+            identity,
+            fingerprint,
+            now,
+            leaseDuration,
+            cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return result;
     }
 
     public async ValueTask<StoredOperation?> ReadOutcomeAsync(
@@ -176,7 +192,7 @@ internal abstract class RelationalOperationStore : IOperationStore
 
     private async ValueTask<OperationBeginResult> TryBeginAsync(
         DbConnection connection,
-        DbTransaction? transaction,
+        DbTransaction transaction,
         OperationIdentity identity,
         OperationFingerprint fingerprint,
         DateTimeOffset now,
@@ -186,6 +202,18 @@ internal abstract class RelationalOperationStore : IOperationStore
         if (leaseDuration <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(leaseDuration));
+        }
+
+        if (!await TryAcquireReservationLockAsync(
+                connection,
+                transaction,
+                identity,
+                cancellationToken).ConfigureAwait(false))
+        {
+            // The owning transaction may not have committed its row yet, so there is
+            // deliberately no read here. A lock-key collision is also handled
+            // conservatively: the caller is denied ownership rather than allowed to run.
+            return new OperationBeginResult(OperationBeginKind.AlreadyInProgress, null, null);
         }
 
         var owner = Guid.NewGuid().ToString("N");

@@ -171,5 +171,43 @@ public sealed class SqlServerOperationStore : IOperationStore
             var number = exception.GetType().GetProperty("Number")?.GetValue(exception);
             return number is 2601 or 2627;
         }
+
+        protected override async ValueTask<bool> TryAcquireReservationLockAsync(
+            DbConnection connection,
+            DbTransaction transaction,
+            OperationIdentity identity,
+            CancellationToken cancellationToken)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                DECLARE @result int;
+                EXEC @result = sys.sp_getapplock
+                    @Resource = @resource,
+                    @LockMode = 'Exclusive',
+                    @LockOwner = 'Transaction',
+                    @LockTimeout = 0,
+                    @DbPrincipal = 'public';
+                SELECT @result;
+                """;
+            var resource = command.CreateParameter();
+            resource.ParameterName = "@resource";
+            resource.DbType = System.Data.DbType.String;
+            resource.Size = 255;
+            resource.Value = ReservationLockKey.ComputeResource(identity);
+            command.Parameters.Add(resource);
+
+            var result = Convert.ToInt32(
+                await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+                System.Globalization.CultureInfo.InvariantCulture);
+            return result switch
+            {
+                >= 0 => true,
+                -1 => false,
+                -2 => throw new OperationCanceledException(cancellationToken),
+                _ => throw new InvalidOperationException(
+                    $"SQL Server could not arbitrate OperationGuard ownership (sp_getapplock result {result})."),
+            };
+        }
     }
 }
