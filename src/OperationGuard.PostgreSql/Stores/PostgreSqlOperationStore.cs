@@ -54,6 +54,14 @@ public sealed class PostgreSqlOperationStore : IOperationStore
             FROM operation_guard_operations
             WHERE identity_hash = @identityHash
             """,
+        ReservationSelect: """
+            SELECT scope, operation_name, idempotency_key, fingerprint_algorithm, fingerprint_version,
+                   fingerprint_digest, state, owner_token, created_at, lease_expires_at, status_code,
+                   response_headers, response_body, replay_body_available, retain_until, response_digest,
+                   recovery_version
+            FROM operation_guard_operations
+            WHERE identity_hash = @identityHash
+            """,
         Complete: """
             UPDATE operation_guard_operations
             SET state = 1, owner_token = NULL, lease_expires_at = NULL, status_code = @statusCode,
@@ -159,10 +167,75 @@ public sealed class PostgreSqlOperationStore : IOperationStore
                 "23505",
                 StringComparison.Ordinal);
 
-        protected override async ValueTask<bool> TryAcquireReservationLockAsync(
+        protected override async ValueTask<OperationBeginKind?> TryAcquireReservationLockAsync(
             DbConnection connection,
             DbTransaction transaction,
             OperationIdentity identity,
+            OperationFingerprint fingerprint,
+            CancellationToken cancellationToken)
+        {
+            var electionResource = ReservationLockKey.ComputeElectionResource(identity);
+            await AcquireSessionAsync(connection, transaction, electionResource, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var fingerprintResource = ReservationLockKey.ComputeFingerprintResource(identity, fingerprint);
+                var fingerprintAcquired = await TryAcquireSessionAsync(
+                    connection,
+                    transaction,
+                    fingerprintResource,
+                    CancellationToken.None).ConfigureAwait(false);
+                if (!fingerprintAcquired)
+                {
+                    return OperationBeginKind.AlreadyInProgress;
+                }
+
+                try
+                {
+                    var identityAcquired = await TryAcquireTransactionAsync(
+                        connection,
+                        transaction,
+                        ReservationLockKey.ComputeResource(identity),
+                        CancellationToken.None).ConfigureAwait(false);
+                    if (!identityAcquired)
+                    {
+                        return OperationBeginKind.FingerprintMismatch;
+                    }
+
+                    if (!await TryAcquireTransactionAsync(
+                            connection,
+                            transaction,
+                            fingerprintResource,
+                            CancellationToken.None).ConfigureAwait(false))
+                    {
+                        throw new InvalidOperationException(
+                            "PostgreSQL did not promote the reservation fingerprint lock.");
+                    }
+
+                    return null;
+                }
+                finally
+                {
+                    await ReleaseSessionAsync(
+                        connection,
+                        transaction,
+                        fingerprintResource,
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                await ReleaseSessionAsync(
+                    connection,
+                    transaction,
+                    electionResource,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+
+        private static async ValueTask<bool> TryAcquireTransactionAsync(
+            DbConnection connection,
+            DbTransaction transaction,
+            string resource,
             CancellationToken cancellationToken)
         {
             await using var command = connection.CreateCommand();
@@ -171,10 +244,75 @@ public sealed class PostgreSqlOperationStore : IOperationStore
             var lockKey = command.CreateParameter();
             lockKey.ParameterName = "@lockKey";
             lockKey.DbType = System.Data.DbType.Int64;
-            lockKey.Value = ReservationLockKey.ComputeInt64(identity);
+            lockKey.Value = ReservationLockKey.ComputeInt64(resource);
             command.Parameters.Add(lockKey);
             return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("PostgreSQL returned no advisory-lock result."));
+        }
+
+        private static async ValueTask AcquireSessionAsync(
+            DbConnection connection,
+            DbTransaction transaction,
+            string resource,
+            CancellationToken cancellationToken)
+        {
+            await using var command = CreateLockCommand(
+                connection,
+                transaction,
+                "SELECT pg_advisory_lock(@lockKey)",
+                resource);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private static async ValueTask<bool> TryAcquireSessionAsync(
+            DbConnection connection,
+            DbTransaction transaction,
+            string resource,
+            CancellationToken cancellationToken)
+        {
+            await using var command = CreateLockCommand(
+                connection,
+                transaction,
+                "SELECT pg_try_advisory_lock(@lockKey)",
+                resource);
+            return (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("PostgreSQL returned no advisory-lock result."));
+        }
+
+        private static async ValueTask ReleaseSessionAsync(
+            DbConnection connection,
+            DbTransaction transaction,
+            string resource,
+            CancellationToken cancellationToken)
+        {
+            await using var command = CreateLockCommand(
+                connection,
+                transaction,
+                "SELECT pg_advisory_unlock(@lockKey)",
+                resource);
+            var released = (bool)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("PostgreSQL returned no advisory-unlock result."));
+            if (!released)
+            {
+                throw new InvalidOperationException("PostgreSQL did not release the reservation election lock.");
+            }
+        }
+
+        private static DbCommand CreateLockCommand(
+            DbConnection connection,
+            DbTransaction transaction,
+            string commandText,
+            string resource)
+        {
+            var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = commandText;
+            var lockKey = command.CreateParameter();
+            lockKey.ParameterName = "@lockKey";
+            lockKey.DbType = System.Data.DbType.Int64;
+            lockKey.Value = ReservationLockKey.ComputeInt64(resource);
+            command.Parameters.Add(lockKey);
+            return command;
         }
     }
 }

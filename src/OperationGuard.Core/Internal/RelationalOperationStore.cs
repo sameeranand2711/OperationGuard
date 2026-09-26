@@ -26,10 +26,11 @@ internal abstract class RelationalOperationStore : IOperationStore
 
     protected abstract bool IsUniqueViolation(DbException exception);
 
-    protected abstract ValueTask<bool> TryAcquireReservationLockAsync(
+    protected abstract ValueTask<OperationBeginKind?> TryAcquireReservationLockAsync(
         DbConnection connection,
         DbTransaction transaction,
         OperationIdentity identity,
+        OperationFingerprint fingerprint,
         CancellationToken cancellationToken);
 
     public async ValueTask<OperationBeginResult> TryBeginAsync(
@@ -204,16 +205,26 @@ internal abstract class RelationalOperationStore : IOperationStore
             throw new ArgumentOutOfRangeException(nameof(leaseDuration));
         }
 
-        if (!await TryAcquireReservationLockAsync(
+        var visible = await ReadAsync(
+            connection,
+            transaction,
+            identity,
+            cancellationToken,
+            _sql.ReservationSelect).ConfigureAwait(false);
+        if (visible is not null)
+        {
+            return ClassifyConflict(visible, fingerprint);
+        }
+
+        var arbitration = await TryAcquireReservationLockAsync(
                 connection,
                 transaction,
                 identity,
-                cancellationToken).ConfigureAwait(false))
+                fingerprint,
+                cancellationToken).ConfigureAwait(false);
+        if (arbitration is not null)
         {
-            // The owning transaction may not have committed its row yet, so there is
-            // deliberately no read here. A lock-key collision is also handled
-            // conservatively: the caller is denied ownership rather than allowed to run.
-            return new OperationBeginResult(OperationBeginKind.AlreadyInProgress, null, null);
+            return new OperationBeginResult(arbitration.Value, null, null);
         }
 
         var owner = Guid.NewGuid().ToString("N");
@@ -272,21 +283,24 @@ internal abstract class RelationalOperationStore : IOperationStore
     {
         var current = await ReadAsync(connection, transaction, identity, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException("The conflicting operation disappeared before it could be read.", innerException);
-        if (current.Fingerprint != fingerprint)
-        {
-            return new OperationBeginResult(OperationBeginKind.FingerprintMismatch, null, current);
-        }
-
-        return new OperationBeginResult(ToBeginKind(current.State), null, current);
+        return ClassifyConflict(current, fingerprint);
     }
+
+    private static OperationBeginResult ClassifyConflict(
+        StoredOperation current,
+        OperationFingerprint fingerprint) =>
+        current.Fingerprint != fingerprint
+            ? new OperationBeginResult(OperationBeginKind.FingerprintMismatch, null, current)
+            : new OperationBeginResult(ToBeginKind(current.State), null, current);
 
     private async ValueTask<StoredOperation?> ReadAsync(
         DbConnection connection,
         DbTransaction? transaction,
         OperationIdentity identity,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? selectSql = null)
     {
-        await using var command = CreateCommand(connection, transaction, _sql.Select);
+        await using var command = CreateCommand(connection, transaction, selectSql ?? _sql.Select);
         AddIdentityHash(command, identity);
         await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

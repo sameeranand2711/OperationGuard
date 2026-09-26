@@ -67,6 +67,14 @@ public sealed class SqlServerOperationStore : IOperationStore
             FROM dbo.OperationGuardOperations
             WHERE IdentityHash = @identityHash
             """,
+        ReservationSelect: """
+            SELECT Scope, OperationName, IdempotencyKey, FingerprintAlgorithm, FingerprintVersion,
+                   FingerprintDigest, State, OwnerToken, CreatedAt, LeaseExpiresAt, StatusCode,
+                   ResponseHeaders, ResponseBody, ReplayBodyAvailable, RetainUntil, ResponseDigest,
+                   RecoveryVersion
+            FROM dbo.OperationGuardOperations WITH (NOLOCK)
+            WHERE IdentityHash = @identityHash
+            """,
         Complete: """
             UPDATE dbo.OperationGuardOperations
             SET State = 1, OwnerToken = NULL, LeaseExpiresAt = NULL, StatusCode = @statusCode,
@@ -172,10 +180,94 @@ public sealed class SqlServerOperationStore : IOperationStore
             return number is 2601 or 2627;
         }
 
-        protected override async ValueTask<bool> TryAcquireReservationLockAsync(
+        protected override async ValueTask<OperationBeginKind?> TryAcquireReservationLockAsync(
             DbConnection connection,
             DbTransaction transaction,
             OperationIdentity identity,
+            OperationFingerprint fingerprint,
+            CancellationToken cancellationToken)
+        {
+            var electionResource = ReservationLockKey.ComputeElectionResource(identity);
+            var electionAcquired = await TryAcquireAsync(
+                connection,
+                transaction,
+                electionResource,
+                "Session",
+                -1,
+                cancellationToken).ConfigureAwait(false);
+            if (!electionAcquired)
+            {
+                throw new InvalidOperationException("SQL Server did not acquire the reservation election lock.");
+            }
+
+            try
+            {
+                var fingerprintResource = ReservationLockKey.ComputeFingerprintResource(identity, fingerprint);
+                var fingerprintAcquired = await TryAcquireAsync(
+                    connection,
+                    transaction,
+                    fingerprintResource,
+                    "Session",
+                    0,
+                    CancellationToken.None).ConfigureAwait(false);
+                if (!fingerprintAcquired)
+                {
+                    return OperationBeginKind.AlreadyInProgress;
+                }
+
+                try
+                {
+                    var identityAcquired = await TryAcquireAsync(
+                        connection,
+                        transaction,
+                        ReservationLockKey.ComputeResource(identity),
+                        "Transaction",
+                        0,
+                        CancellationToken.None).ConfigureAwait(false);
+                    if (!identityAcquired)
+                    {
+                        return OperationBeginKind.FingerprintMismatch;
+                    }
+
+                    if (!await TryAcquireAsync(
+                            connection,
+                            transaction,
+                            fingerprintResource,
+                            "Transaction",
+                            0,
+                            CancellationToken.None).ConfigureAwait(false))
+                    {
+                        throw new InvalidOperationException(
+                            "SQL Server did not promote the reservation fingerprint lock.");
+                    }
+
+                    return null;
+                }
+                finally
+                {
+                    await ReleaseSessionAsync(
+                        connection,
+                        transaction,
+                        fingerprintResource,
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                await ReleaseSessionAsync(
+                    connection,
+                    transaction,
+                    electionResource,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+
+        private static async ValueTask<bool> TryAcquireAsync(
+            DbConnection connection,
+            DbTransaction transaction,
+            string resourceValue,
+            string lockOwner,
+            int lockTimeout,
             CancellationToken cancellationToken)
         {
             await using var command = connection.CreateCommand();
@@ -185,8 +277,8 @@ public sealed class SqlServerOperationStore : IOperationStore
                 EXEC @result = sys.sp_getapplock
                     @Resource = @resource,
                     @LockMode = 'Exclusive',
-                    @LockOwner = 'Transaction',
-                    @LockTimeout = 0,
+                    @LockOwner = @lockOwner,
+                    @LockTimeout = @lockTimeout,
                     @DbPrincipal = 'public';
                 SELECT @result;
                 """;
@@ -194,8 +286,19 @@ public sealed class SqlServerOperationStore : IOperationStore
             resource.ParameterName = "@resource";
             resource.DbType = System.Data.DbType.String;
             resource.Size = 255;
-            resource.Value = ReservationLockKey.ComputeResource(identity);
+            resource.Value = resourceValue;
             command.Parameters.Add(resource);
+            var owner = command.CreateParameter();
+            owner.ParameterName = "@lockOwner";
+            owner.DbType = System.Data.DbType.String;
+            owner.Size = 32;
+            owner.Value = lockOwner;
+            command.Parameters.Add(owner);
+            var timeout = command.CreateParameter();
+            timeout.ParameterName = "@lockTimeout";
+            timeout.DbType = System.Data.DbType.Int32;
+            timeout.Value = lockTimeout;
+            command.Parameters.Add(timeout);
 
             var result = Convert.ToInt32(
                 await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
@@ -208,6 +311,38 @@ public sealed class SqlServerOperationStore : IOperationStore
                 _ => throw new InvalidOperationException(
                     $"SQL Server could not arbitrate OperationGuard ownership (sp_getapplock result {result})."),
             };
+        }
+
+        private static async ValueTask ReleaseSessionAsync(
+            DbConnection connection,
+            DbTransaction transaction,
+            string resourceValue,
+            CancellationToken cancellationToken)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                DECLARE @result int;
+                EXEC @result = sys.sp_releaseapplock
+                    @Resource = @resource,
+                    @LockOwner = 'Session',
+                    @DbPrincipal = 'public';
+                SELECT @result;
+                """;
+            var resource = command.CreateParameter();
+            resource.ParameterName = "@resource";
+            resource.DbType = System.Data.DbType.String;
+            resource.Size = 255;
+            resource.Value = resourceValue;
+            command.Parameters.Add(resource);
+            var result = Convert.ToInt32(
+                await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+                System.Globalization.CultureInfo.InvariantCulture);
+            if (result < 0)
+            {
+                throw new InvalidOperationException(
+                    $"SQL Server did not release the reservation election lock (sp_releaseapplock result {result}).");
+            }
         }
     }
 }
