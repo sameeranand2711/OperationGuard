@@ -193,11 +193,6 @@ public sealed class HostedPipelineContractTests
         return new HostedApplication(host, new HttpClient { BaseAddress = new Uri(address) });
     }
 
-    public sealed class InvocationCounter
-    {
-        public int Value { get; set; }
-    }
-
     private sealed class HostedApplication(IHost host, HttpClient client) : IAsyncDisposable
     {
         public IServiceProvider Services => host.Services;

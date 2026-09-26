@@ -6,7 +6,7 @@ namespace OperationGuard.AspNetCore.Tests;
 
 [ApiController]
 [Route("hosted-mvc")]
-public sealed class HostedGuardController(HostedPipelineContractTests.InvocationCounter invocations) : ControllerBase
+public sealed class HostedGuardController(InvocationCounter invocations) : ControllerBase
 {
     [HttpPost]
     [OperationGuard("Hosted.Mvc")]
