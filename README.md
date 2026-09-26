@@ -88,7 +88,20 @@ app.Run();
 internal sealed record CreateOrder(Guid OrderId, decimal Amount);
 ```
 
-For applications with authentication and authorization, run those middleware components before `UseOperationGuard()`. This allows `ScopeResolver` to derive tenant or partner scope from the application's trusted identity context before the operation is reserved.
+The minimal-hosting example relies on `WebApplication` to insert routing implicitly, so endpoint metadata is available when `UseOperationGuard()` runs. In a conventional pipeline with explicit middleware ordering, use this sequence:
+
+```csharp
+app.UseRouting();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.UseOperationGuard();
+
+app.UseEndpoints(endpoints => endpoints.MapControllers());
+```
+
+Routing must select the endpoint and its OperationGuard metadata first. Authentication and authorization, where used, must then establish the trusted identity from which `ScopeResolver` derives tenant or partner scope. `UseOperationGuard()` runs next, before the protected endpoint executes. Placing `UseOperationGuard()` before routing is unsupported: no endpoint metadata is available at that point, so the middleware cannot recognize the endpoint as protected and does not guard it.
 
 The equivalent SQL Server registration is:
 
@@ -156,7 +169,7 @@ The default HTTP fingerprint uses the operation name, method, canonicalized quer
 
 ### Protected Minimal API or MVC endpoint
 
-Call `UseOperationGuard()` before protected endpoints execute, then add `.RequireOperationGuard("Stable.OperationName")` to a Minimal API endpoint. MVC actions and controllers can use `[OperationGuard("Stable.OperationName")]`; both surfaces use the same endpoint metadata and middleware behavior.
+After routing and any authentication/authorization middleware, call `UseOperationGuard()` before protected endpoints execute. Add `.RequireOperationGuard("Stable.OperationName")` to a Minimal API endpoint. MVC actions and controllers can use `[OperationGuard("Stable.OperationName")]`; both surfaces use the same endpoint metadata and middleware behavior.
 
 The HTTP integration requires one non-empty `Idempotency-Key` request header. It buffers only up to the configured fingerprint-body limit and resets the request stream before calling the handler.
 
