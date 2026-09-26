@@ -38,10 +38,16 @@ public sealed class Sha256RequestFingerprintProvider : IRequestFingerprintProvid
         Append(hash, CanonicalizeQuery(input.Query));
         Append(hash, input.ContentType);
 
-        foreach (var header in (input.SelectedHeaders ?? new Dictionary<string, string[]>())
-                     .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        var selectedHeaders = (input.SelectedHeaders ?? new Dictionary<string, string[]>())
+            .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(pair => pair.Key, StringComparer.Ordinal)
+            .ToArray();
+
+        Append(hash, selectedHeaders.Length);
+        foreach (var header in selectedHeaders)
         {
             Append(hash, header.Key.ToUpperInvariant());
+            Append(hash, header.Value.Length);
             foreach (var value in header.Value)
             {
                 Append(hash, value);
@@ -74,10 +80,15 @@ public sealed class Sha256RequestFingerprintProvider : IRequestFingerprintProvid
 
     private static void Append(IncrementalHash hash, ReadOnlySpan<byte> value)
     {
-        Span<byte> length = stackalloc byte[sizeof(int)];
-        BinaryPrimitives.WriteInt32BigEndian(length, value.Length);
-        hash.AppendData(length);
+        Append(hash, value.Length);
         hash.AppendData(value);
+    }
+
+    private static void Append(IncrementalHash hash, int value)
+    {
+        Span<byte> buffer = stackalloc byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32BigEndian(buffer, value);
+        hash.AppendData(buffer);
     }
 
     private readonly record struct QueryPart(string Value, string Key, int Index);
