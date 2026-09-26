@@ -118,6 +118,15 @@ Compile failures, test failures, race conditions, design defects, provider bugs,
 - Use vendor-neutral diagnostics/observability hooks.
 - Do not make claims stronger than the implementation can prove.
 
+## Sample application rules
+
+- Sample applications exist only to demonstrate the library's intended usage.
+- Do not add tests for sample applications or reference sample projects from test projects.
+- Validate samples only by building them and by concise manual/runtime smoke checks when required by a gate.
+- Keep samples minimal. Do not add authentication systems, reusable infrastructure, or other product-like behavior that is not necessary to demonstrate OperationGuard.
+- Sample-driven convenience must not expand or distort the production library API.
+- A single-tenant sample should use an explicit fixed server-side scope. Multi-tenant guidance belongs in consumer documentation and should derive scope from an application's trusted identity context.
+
 ## Agent communication
 
 Agents communicate through Agent 00. A downstream FAIL is routed back to the agent capable of fixing it:

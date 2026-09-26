@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>OperationGuard.SqlServer</PackageId>
+    <Description>SQL Server durable operation store for OperationGuard.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../OperationGuard.Core/OperationGuard.Core.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+</Project>

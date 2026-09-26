@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OperationGuard.Core/OperationGuard.Core.csproj" />
+    <Project Path="src/OperationGuard.AspNetCore/OperationGuard.AspNetCore.csproj" />
+    <Project Path="src/OperationGuard.SqlServer/OperationGuard.SqlServer.csproj" />
+    <Project Path="src/OperationGuard.PostgreSql/OperationGuard.PostgreSql.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OperationGuard.Testing.Contracts/OperationGuard.Testing.Contracts.csproj" />
+    <Project Path="tests/OperationGuard.Core.Tests/OperationGuard.Core.Tests.csproj" />
+    <Project Path="tests/OperationGuard.AspNetCore.Tests/OperationGuard.AspNetCore.Tests.csproj" />
+    <Project Path="tests/OperationGuard.SqlServer.IntegrationTests/OperationGuard.SqlServer.IntegrationTests.csproj" />
+    <Project Path="tests/OperationGuard.PostgreSql.IntegrationTests/OperationGuard.PostgreSql.IntegrationTests.csproj" />
+    <Project Path="tests/OperationGuard.ConcurrencyTests/OperationGuard.ConcurrencyTests.csproj" />
+    <Project Path="tests/OperationGuard.SecurityTests/OperationGuard.SecurityTests.csproj" />
+    <Project Path="tests/OperationGuard.Benchmarks/OperationGuard.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/PaymentApi/PaymentApi.csproj" />
+    <Project Path="samples/MessageConsumer/MessageConsumer.csproj" />
+  </Folder>
+</Solution>
